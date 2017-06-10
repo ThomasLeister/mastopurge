@@ -73,7 +73,7 @@ func main() {
 
     err = c.Authenticate(context.Background(), email, password)
 	if err != nil {
-		log.Fatal("Faled to authenticate", err)
+		log.Fatal("Failed to authenticate", err)
 	}
 
 
