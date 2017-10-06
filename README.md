@@ -27,7 +27,7 @@ Mass-deletions by MastoPurge cause a lot of traffic between Mastodon instances, 
 ## Run Linux x64 binary:
 
     wget https://github.com/ThomasLeister/mastopurge/releases/download/v1.0.0/mastopurge_linux_x86_64
-    chmod u+x mastopurge
+    chmod u+x mastopurge_linux_x86_64
     ./mastopurge_linux_x86_64
 
 
