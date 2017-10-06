@@ -2,134 +2,384 @@ package main
 
 import (
     "fmt"
-    "github.com/mattn/go-mastodon"
-    "context"
+    "net/http"
+    "net/url"
+    "io/ioutil"
     "log"
     "time"
+    "strings"
+    "encoding/json"
     "bufio"
     "os"
-    "strings"
+    "strconv"
 )
+
+
+/*
+ * Httpclient object for easier interaction with API
+ */
+type Httpclient struct {
+    Server          string
+    Timeout         time.Duration
+    Client          http.Client
+    Useragent       string
+    AccessToken    string
+}
+
+func (hc *Httpclient) Init () {
+    hc.Client = http.Client{
+        Timeout: hc.Timeout,
+    }
+    hc.Useragent = "MastoPurge"
+}
+
+
+func (hc *Httpclient) ApiRequest (method string, endpoint string, params *url.Values) (body []byte, err error) {
+    for {
+        var req *http.Request
+        var err error
+
+        if method == http.MethodPost || method == http.MethodPut {
+            req, err = http.NewRequest(method, hc.Server + endpoint, strings.NewReader(params.Encode()))
+        } else {
+            var paramsEncoded string
+            if params != nil {
+                paramsEncoded = "?" + params.Encode()
+            }
+            req, err = http.NewRequest(method, hc.Server + endpoint + paramsEncoded, nil)
+        }
+        if err != nil {
+            log.Fatal(err)
+        }
+        req.Header.Set("User-Agent", hc.Useragent)
+        if hc.AccessToken != "" { req.Header.Set("Authorization", "Bearer " + hc.AccessToken) }
+
+        res, geterr := hc.Client.Do(req)
+        if geterr != nil {
+            log.Fatal(geterr)
+        }
+
+        body, err = ioutil.ReadAll(res.Body)
+        if err != nil {
+            log.Fatal(err)
+        }
+
+        // Only exit if request was not API rate limited
+        if rateLimited(body) == false { break; }
+    }
+
+    return body, nil
+}
+
+
+/*
+ * Checks if API throttling is active. If yes, wait and repeat http request.
+ */
+func rateLimited(resp []byte) (ratelimited bool){
+    if string(resp) == "{\"error\":\"Throttled\"}" {
+        ratelimited = true
+        fmt.Print(">>>>>> Server has run hot and is throttling. We have to wait until it has cooled down. Please be patient ...")
+        for i:=0; i<30; i++ {
+            time.Sleep(time.Duration(1) * time.Second)
+            fmt.Print(".")
+        }
+        fmt.Print(" retrying ...")
+        fmt.Print("\n")
+    }
+    return
+}
+
+/*
+ * Helper function to easily read input from console
+ */
+func readFromConsole() (stringstore string) {
+    reader := bufio.NewReader(os.Stdin)
+    stringstore, _ = reader.ReadString('\n')
+    stringstore = strings.Replace(stringstore, "\n", "", -1)
+    return
+}
+
+
+/*
+ * Various data structs
+ */
+
+type MastoPurgeSettings struct {
+    Server          string  `json:"server"`
+    ClientID        string  `json:"client_id"`
+    ClientSecret    string  `json:"client_secret"`
+    AccessToken     string  `json:"access_token"`
+}
+
+type AccountInfo struct {
+    ID          int     `json:"id"`
+    Username    string  `json:"username"`
+}
+
+type RespAppRegister struct {
+    ClientID        string  `json:"client_id"`
+    ClientSecret    string  `json:"client_secret"`
+}
+
+type RespAccessToken struct {
+    AccessToken     string `json:"access_token"`
+}
+
+type Status struct {
+    ID          uint32  `json:"id"`
+    Content     string  `json:"content"`
+    CreatedAt   string  `json:"created_at"`
+}
 
 
 func main() {
     var err error
-    fmt.Println("Hello!")
-    fmt.Println("MastoPurge deletes your outdated Mastodon posts via the API.")
-    fmt.Println("==================================================================")
-    fmt.Println("Please note that this can take some time due to API rate limits!")
-    fmt.Println("==================================================================")
 
-    reader := bufio.NewReader(os.Stdin)
-    var instance string
-    var email string
-    var password string
-    var client_id string
-    var client_secret string
+    /*
+     * Add fancyness!
+     */
+    fmt.Println("\nWelcome to ...")
+    fmt.Println("                     _                                   ")
+    fmt.Println(" _ __ ___   __ _ ___| |_ ___  _ __  _   _ _ __ __ _  ___ ")
+    fmt.Println("| '_ ` _ \\ / _` / __| __/ _ \\| '_ \\| | | | '__/ _` |/ _ \\")
+    fmt.Println("| | | | | | (_| \\__ \\ || (_) | |_) | |_| | | | (_| |  __/")
+    fmt.Println("|_| |_| |_|\\__,_|___/\\__\\___/| .__/ \\__,_|_|  \\__, |\\___|")
+    fmt.Println("                             |_|              |___/      ")
+    fmt.Println("    ... add German Datenhygiene to your Mastodon-Account!")
+    fmt.Print("\n\n")
 
-    fmt.Println("Your instance: (e.g. \"social.tchncs.de\")")
-    instance, _ = reader.ReadString('\n')
-    instance = strings.Replace(instance, "\n", "", -1)
+    log.Println("Version 1.0.0")
 
+    /*
+     * Set up settings and Httpclient
+     */
+    settings := MastoPurgeSettings{}
+    myhttpclient := Httpclient{}
+    myhttpclient.Init()
+    myhttpclient.Timeout = time.Second * 5
 
-    // Registering application
-    app, err := mastodon.RegisterApp(context.Background(), &mastodon.AppConfig{
-		Server:     "https://" + instance,
-		ClientName: "Mastopurge",
-		Scopes:     "read write follow",
-		Website:    "https://github.com/ThomasLeister/mastopurge",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
+    /*
+     * Check if configuration file .mastopurgesettings exists
+     * - Create if it does not exist
+     * - Use if exists
+     */
+    config_raw, readerr := ioutil.ReadFile(".mastopurgesettings")
+    if readerr != nil {
+        log.Println("MastoPurge configuration file .mastopurgesettings does not exist or is not accessible.")
+        fmt.Println("\nFirst we need to connect MastoPurge to your Mastodon account.")
+        fmt.Println("Enter the domain of your Mastodon home instance: (e.g. \"metalhead.club\")")
+        fmt.Print("[Mastodon home instance]: ")
+        settings.Server = readFromConsole()
+        myhttpclient.Server = "https://" + settings.Server
 
-	//fmt.Printf("client-id    : %s\n", app.ClientID)
-	//fmt.Printf("client-secret: %s\n", app.ClientSecret)
-    client_id = app.ClientID
-    client_secret = app.ClientSecret
-
-
-    fmt.Println("Your account's e-mail address:")
-    email, _ = reader.ReadString('\n')
-    email = strings.Replace(email, "\n", "", -1)
-
-    fmt.Println("Your password:")
-    password, _ = reader.ReadString('\n')
-    password = strings.Replace(password, "\n", "", -1)
-
-    fmt.Println("Maximum age of posts (in days - older posts are deleted!):")
-    var maxage int
-    fmt.Scan(&maxage)
-
-    c := mastodon.NewClient(&mastodon.Config{
-		Server:       "https://" + instance,
-		ClientID:     client_id,
-		ClientSecret: client_secret,
-	})
-
-    log.Println("Authorizing ...")
-    log.Println("Email:", email)
-    log.Println("Password:", password)
-
-    err = c.Authenticate(context.Background(), email, password)
-	if err != nil {
-		log.Fatal("Failed to authenticate", err)
-	}
-
-
-    // Calc time things
-    // Maximum age
-    var maxtime = time.Now().Add(-1 * (time.Duration(maxage) * time.Hour * 24))
-    log.Println("Now time:", time.Now())
-    log.Println("Maximum time:", maxtime)
-
-
-    // Get user account
-    account, accerr := c.GetAccountCurrentUser(context.Background())
-    if accerr != nil {
-        log.Fatal(accerr)
-    }
-
-    var maxid int64
-    maxid = 1000000000
-
-    for {
-        log.Println("Getting account statuses until ID", maxid)
-        var pg mastodon.Pagination
-        pg.Limit = 40
-        pg.MaxID = maxid
-
-    	timeline, err := c.GetAccountStatuses(context.Background(), account.ID, &pg)
-    	if err != nil {
-    		log.Fatal(err)
-    	}
-
-        if len(timeline) == 0 {
-            break
+        // Register application for user on server
+        log.Println(">>>>>> Registering MastoPurge App on " + settings.Server)
+        params := url.Values{}
+        params.Add("client_name", "MastoPurge")
+        params.Add("redirect_uris", "urn:ietf:wg:oauth:2.0:oob")
+        params.Add("scopes", "read write")
+        body, registerErr := myhttpclient.ApiRequest(http.MethodPost, "/api/v1/apps", &params)
+        if registerErr != nil {
+            log.Fatal(registerErr)
         }
 
-    	for i := len(timeline) - 1 ; i >= 0; i-- {
-            status := timeline[i]
-            log.Println("Checking status", status.ID)
+        // Parse response JSON
+        respAppRegister := RespAppRegister{}
+        err = json.Unmarshal(body, &respAppRegister)
+        if err != nil {
+            log.Fatal(err)
+        }
+        settings.ClientID       = respAppRegister.ClientID
+        settings.ClientSecret   = respAppRegister.ClientSecret
 
-            // Check if this status is outdated
-            if status.CreatedAt.Before(maxtime) {
-                // Delete this status
-                log.Println("Deleting outdated status...")
-                err := c.DeleteStatus(context.Background(), status.ID)
-                if err != nil {
-                    log.Fatal(err)
-                }
-                log.Println("Status", status.ID, "deleted.")
-                time.Sleep(1 * time.Second)
-            }
+        // User must manually authenticate app
+        authurl := "https://" + settings.Server + "/oauth/authorize?scope=read%20write&response_type=code&redirect_uri=urn:ietf:wg:oauth:2.0:oob&client_id=" + settings.ClientID
+        fmt.Println("\n\nPlease visit this URL in your webbrowser:")
+        fmt.Println(authurl)
+        fmt.Println("\n\n... and enter the code here:")
+        fmt.Print("[Auth code]: ")
+        code := readFromConsole()
 
-            if status.ID < maxid {
-                maxid = status.ID
-            }
-    	}
+        // Request auth token via auth code ...
+        params = url.Values{}
+        params.Add("client_id", settings.ClientID)
+        params.Add("client_secret", settings.ClientSecret)
+        params.Add("grant_type", "authorization_code")
+        params.Add("redirect_uri", "urn:ietf:wg:oauth:2.0:oob")
+        params.Add("code", code)
+        body, err = myhttpclient.ApiRequest(http.MethodPost, "/oauth/token", &params)
+        if err != nil {
+            log.Fatal(err)
+        }
+
+        respAccessToken := RespAccessToken{}
+        err = json.Unmarshal(body, &respAccessToken)
+        if err != nil {
+            log.Fatal(err)
+        }
+        settings.AccessToken = respAccessToken.AccessToken
+        myhttpclient.AccessToken = settings.AccessToken
+
+        // Write settings to config file
+        config_raw, _ = json.Marshal(settings)
+        err = ioutil.WriteFile(".mastopurgesettings", config_raw, 0600)
+        if err != nil {
+            log.Fatal(err)
+        }
+
+    } else {
+        log.Println("MastoPurge configuration found! Reading config.")
+
+        /*
+         * Load settings
+         */
+        err = json.Unmarshal(config_raw, &settings)
+        if err != nil {
+            log.Fatal("Config file is malformed :(\nPlease consider deleting .mastopurgesettings from your file system.")
+        }
+
+        myhttpclient.Server = "https://" + settings.Server
+        myhttpclient.AccessToken = settings.AccessToken
     }
 
-    log.Println("Checked all statuses. Finished.")
 
+
+
+    /*
+     * Check if account access is okay
+     */
+
+    log.Println("Requesting access to Mastodon account")
+    body, accessErr := myhttpclient.ApiRequest(http.MethodGet, "/api/v1/accounts/verify_credentials", nil)
+    if accessErr != nil {
+        log.Fatal(accessErr)
+    } else {
+        accountinfo := AccountInfo{}
+        err = json.Unmarshal(body, &accountinfo)
+
+        if accountinfo.ID == 0 {
+            log.Println("Access DENIED :-(")
+            log.Fatal("Unfortunately API access was not granted. Consider deleting the .mastopurgesettings and starting MastoPurge again!")
+        } else {
+            log.Println("Access GRANTED :-)")
+            fmt.Println(">>> Account ID:", accountinfo.ID)
+            fmt.Println(">>> Username:", accountinfo.Username)
+
+            // Do some date calculations ...
+            var maxage time.Duration
+            var maxtime time.Time
+
+            for {
+                fmt.Println("\nEnter the maximum age of the posts you want to KEEP, e.g. \"30 days\". Older posts will be deleted. Allowed units: hours, days, weeks, months.")
+                fmt.Print("[Maximum post age]: ")
+                maxagestring := readFromConsole()
+                parts := strings.Split(maxagestring, " ")
+
+                if len(parts) == 2 {
+                    maxagenum, converr := strconv.Atoi(parts[0])
+                    if converr == nil {
+                        var factor time.Duration
+
+                        switch(parts[1]) {
+                        case "hours":
+                            factor = time.Hour
+                        case "days":
+                            factor = time.Hour * time.Duration(24)
+                        case "weeks":
+                            factor = time.Hour * time.Duration(24 * 7)
+                        case "months":
+                            factor = time.Hour * time.Duration(24 * 30)
+                        default:
+                            factor = 0
+                        }
+
+                        if factor != 0 {
+                            maxage = factor * time.Duration(maxagenum)
+                            break;
+                        }
+                    }
+                }
+                fmt.Println("Error: Invalid age format.")
+            }
+
+            maxtime = time.Now().Add(- maxage)
+            fmt.Println("Okay, let's do it! ")
+            fmt.Println("Posts older than", maxtime, "will be deleted!")
+            fmt.Print("Loading gun ")
+            for i:=0; i<40; i++ {
+                fmt.Print(".")
+                time.Sleep(time.Duration(50) * time.Millisecond)
+            }
+            time.Sleep(time.Duration(2) * time.Second)
+            fmt.Print("\n\n")
+
+
+            var maxid uint32 = 1<<32 - 1 // (1<<32 - 1) is max value for uint32
+            var deletedcount uint16
+
+            // Fetch new pages until there are no more pages
+            for {
+                log.Println("========== Fetching new statuses ==========")
+
+                nodeletions := true
+
+                // Fetch posts
+                params := url.Values{}
+                params.Add("limit", strconv.Itoa(40))
+                params.Add("max_id", fmt.Sprint(maxid))
+                resp, fetchErr := myhttpclient.ApiRequest(http.MethodGet, "/api/v1/accounts/" + strconv.Itoa(accountinfo.ID) + "/statuses", &params)
+                if fetchErr != nil {
+                    log.Fatal(fetchErr)
+                }
+
+                var statuses []Status
+                err = json.Unmarshal(resp, &statuses)
+                if err != nil {
+                    // Maybe server response is an error message?
+                    fmt.Println(string(resp))
+                    log.Fatal(err)
+                }
+
+                // Exit killer loop if there are no more statuses
+                if len(statuses) == 0 { break; }
+
+                time_layout := "2006-01-02T15:04:05.000Z"
+                for i:=0; i<len(statuses); i++ {
+                    // Parse time
+                    time, timeParseErr := time.Parse(time_layout, statuses[i].CreatedAt)
+                    if timeParseErr != nil { log.Println("Failed to parse status time!") } else {
+                        if time.Before(maxtime) {
+                            // Delete post
+                            nodeletions = false
+                            delResp, delErr := myhttpclient.ApiRequest(http.MethodDelete, "/api/v1/statuses/" + fmt.Sprint(statuses[i].ID), nil)
+                            if delErr != nil {
+                                log.Println("!!! Could not delete status " + fmt.Sprint(statuses[i].ID) + " !!!")
+                            }
+
+                            if string(delResp) == "{}" {
+                                log.Println("Status " + fmt.Sprint(statuses[i].ID) + " successfully deleted!")
+                                deletedcount++
+                            } else {
+                                log.Println("Status " + fmt.Sprint(statuses[i].ID) + " could not be deleted :(")
+                            }
+                        }
+
+                        if (statuses[i].ID < maxid) {
+                            maxid = statuses[i].ID - 1
+                        }
+                    }
+                }
+
+                if nodeletions {
+                    log.Println("No posts to be deleted on this page. Trying next page ...")
+                } else {
+                    // Wait before fetching a new page. Give server time to re-assemble pages.
+                    time.Sleep(time.Duration(1) * time.Second)
+                }
+            }
+
+            // No more pages, done! :-)
+            fmt.Println(">>>>>> ", deletedcount, "statuses were successfully deleted.")
+        }
+    }
 }

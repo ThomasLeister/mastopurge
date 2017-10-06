@@ -1,0 +1,4 @@
+### Ignore binary
+mastopurge
+### Ignore config
+.mastopurgesettings
