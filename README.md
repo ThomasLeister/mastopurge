@@ -18,7 +18,7 @@ See https://youtu.be/fQzc6CHq3aU
 There is a German word for the process of removing old data: "Datenhygiene". Datenhygiene can be  translated to "data hygiene", which means to remove data which is not needed or relevant anymore. This brings some advantages:
 
 * **Remove part of your personal history from the internet**: Maybe you regret having written something publicly or privately, which new users should not see anymore. We all change our opinions over time. Be sure nobody gets a wrong impression based on outdated posts.  
-* **Improve server performance**: Less posts => Less data => Besser database performance => Quicker Mastodon reaction. Posts usually are not relevant anymore after few days. Do your instance administrator a favor and clean up your space to keep costs for computing and storage as low as possible.
+* **Improve server performance**: Less posts => Less data => Better database performance => Quicker Mastodon reaction. Posts usually are not relevant anymore after a few days. Do your instance administrator a favor and clean up your space to keep costs for computing and storage as low as possible.
 
 ## Why should you NOT use this tool?
 
@@ -48,6 +48,6 @@ Mass-deletions by MastoPurge cause a lot of traffic between Mastodon instances, 
 3. MastoPurge will ask you to visit a certain URL. Open this URL in your web browser
 4. Authorize MastoPurge to access your Mastodon account. A Code will be displayed.
 5. Enter the code into MastoPurge
-6. Select a time span of your choice. Posts from this time range will *not* be deleted. Older posts will be removed.
+6. Select a timespan of your choice. Posts from this time range will *not* be deleted. Older posts will be removed.
 7. Wait. Removing hundreds or thousands of posts can take a long time due to API limits.
 8. MastoPurge will remember your account the next time you use it. No more authentication needed. If you want to use another account, delete the .mastopurgesettings file.
