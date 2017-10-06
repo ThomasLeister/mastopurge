@@ -9,6 +9,10 @@ MastoPurge is executed as a command line application on your own PC. You do not 
 * Deleting hundreds or thousands of posts can take a long time due to Mastodon API limits/throttling
 * There is no guarantee that your federated toots are deleted on every foreign instance
 
+## Demo Video
+
+See https://youtu.be/fQzc6CHq3aU
+
 ## Why should you use this tool?
 
 There is a German word for the process of removing old data: "Datenhygiene". Datenhygiene can be  translated to "data hygiene", which means to remove data which is not needed or relevant anymore. This brings some advantages:
