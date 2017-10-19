@@ -24,9 +24,10 @@ There is a German word for the process of removing old data: "Datenhygiene". Dat
 
 Mass-deletions by MastoPurge cause a lot of traffic between Mastodon instances, because deletions are federated one after another. Unfortunately Mastodon does not offer mass-deleting old posts itself, so there is no other efficient way to get rid of your old data. Mass-deletions could be implemented quite traffic-respecting, if well integrated into Mastodon - obviously there is no solution to that yet. (Also see: [#875](https://github.com/tootsuite/mastodon/issues/875), [#69](https://github.com/glitch-soc/mastodon/issues/69))
 
-## Run Linux x64 binary:
+## Download and run Linux x64 binary:
 
-    wget https://github.com/ThomasLeister/mastopurge/releases/download/v1.0.0/mastopurge_linux_x86_64
+Download latest binary from https://github.com/ThomasLeister/mastopurge/releases/latest
+
     chmod u+x mastopurge_linux_x86_64
     ./mastopurge_linux_x86_64
 
