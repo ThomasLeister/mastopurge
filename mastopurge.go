@@ -112,7 +112,7 @@ type MastoPurgeSettings struct {
 }
 
 type AccountInfo struct {
-    ID          int     `json:"id"`
+    ID          int     `json:"id,string"`
     Username    string  `json:"username"`
 }
 
@@ -126,7 +126,7 @@ type RespAccessToken struct {
 }
 
 type Status struct {
-    ID          uint32  `json:"id"`
+    ID          uint64  `json:"id,string"`
     Content     string  `json:"content"`
     CreatedAt   string  `json:"created_at"`
 }
@@ -148,7 +148,7 @@ func main() {
     fmt.Println("    ... add German Datenhygiene to your Mastodon-Account!")
     fmt.Print("\n\n")
 
-    log.Println("Version 1.0.0")
+    log.Println("Version 1.1.0")
 
     /*
      * Set up settings and Httpclient
@@ -314,7 +314,7 @@ func main() {
             fmt.Print("\n\n")
 
 
-            var maxid uint32 = 1<<32 - 1 // (1<<32 - 1) is max value for uint32
+            var maxid uint64 = 0
             var deletedcount uint16
 
             // Fetch new pages until there are no more pages
@@ -326,7 +326,9 @@ func main() {
                 // Fetch posts
                 params := url.Values{}
                 params.Add("limit", strconv.Itoa(40))
-                params.Add("max_id", fmt.Sprint(maxid))
+                if maxid != 0 {
+                    params.Add("max_id", fmt.Sprint(maxid))
+                }
                 resp, fetchErr := myhttpclient.ApiRequest(http.MethodGet, "/api/v1/accounts/" + strconv.Itoa(accountinfo.ID) + "/statuses", &params)
                 if fetchErr != nil {
                     log.Fatal(fetchErr)
