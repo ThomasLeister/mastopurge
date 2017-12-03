@@ -14,6 +14,10 @@ import (
     "strconv"
 )
 
+const(
+    Pagelimit = 40
+)
+
 
 /*
  * Httpclient object for easier interaction with API
@@ -65,7 +69,7 @@ func (hc *Httpclient) ApiRequest (method string, endpoint string, params *url.Va
         }
 
         // Only exit if request was not API rate limited
-        if rateLimited(body) == false { break; }
+        if rateLimited(res) == false { break; }
     }
 
     return body, nil
@@ -75,16 +79,23 @@ func (hc *Httpclient) ApiRequest (method string, endpoint string, params *url.Va
 /*
  * Checks if API throttling is active. If yes, wait and repeat http request.
  */
-func rateLimited(resp []byte) (ratelimited bool){
-    if string(resp) == "{\"error\":\"Throttled\"}" {
+func rateLimited(res *http.Response) (ratelimited bool){
+    if res.StatusCode == 429 {
         ratelimited = true
-        fmt.Print(">>>>>> Server has run hot and is throttling. We have to wait until it has cooled down. Please be patient ...")
-        for i:=0; i<30; i++ {
-            time.Sleep(time.Duration(1) * time.Second)
-            fmt.Print(".")
+
+        var wait_duration time.Duration
+        wait_until_time,  e_wait_until_time := time.Parse(time.RFC3339, res.Header.Get("X-Ratelimit-Reset"))
+        if e_wait_until_time != nil {
+            fmt.Println("Cool down time was not defined by server. Waiting for 30 seconds.")
+            wait_duration = time.Duration(30) * time.Second
+        } else {
+            wait_duration = time.Until(wait_until_time)
         }
-        fmt.Print(" retrying ...")
-        fmt.Print("\n")
+
+        fmt.Printf(">>>>>> Server has run hot and is throttling. We have to wait for %d seconds until it has cooled down. Please be patient ...", int(wait_duration.Seconds()) )
+        time.Sleep(wait_duration)
+
+        fmt.Println("Retrying ...")
     }
     return
 }
@@ -127,7 +138,7 @@ type RespAccessToken struct {
 
 type Status struct {
     ID          uint64  `json:"id,string"`
-    Content     string  `json:"content"`
+    //Content     string  `json:"content"`
     CreatedAt   string  `json:"created_at"`
 }
 
@@ -319,13 +330,13 @@ func main() {
 
             // Fetch new pages until there are no more pages
             for {
-                log.Println("========== Fetching new statuses ==========")
+                log.Printf("========== Fetching new statuses until status %d ==========\n", maxid)
 
                 nodeletions := true
 
                 // Fetch posts
                 params := url.Values{}
-                params.Add("limit", strconv.Itoa(40))
+                params.Add("limit", strconv.Itoa(Pagelimit))
                 if maxid != 0 {
                     params.Add("max_id", fmt.Sprint(maxid))
                 }
@@ -345,10 +356,9 @@ func main() {
                 // Exit killer loop if there are no more statuses
                 if len(statuses) == 0 { break; }
 
-                time_layout := "2006-01-02T15:04:05.000Z"
                 for i:=0; i<len(statuses); i++ {
                     // Parse time
-                    time, timeParseErr := time.Parse(time_layout, statuses[i].CreatedAt)
+                    time, timeParseErr := time.Parse(time.RFC3339, statuses[i].CreatedAt)
                     if timeParseErr != nil { log.Println("Failed to parse status time!") } else {
                         if time.Before(maxtime) {
                             // Delete post
@@ -359,22 +369,23 @@ func main() {
                             }
 
                             if string(delResp) == "{}" {
-                                log.Println("Status " + fmt.Sprint(statuses[i].ID) + " successfully deleted!")
+                                //log.Println("Status " + fmt.Sprint(statuses[i].ID) + " successfully deleted!")
                                 deletedcount++
                             } else {
                                 log.Println("Status " + fmt.Sprint(statuses[i].ID) + " could not be deleted :(")
                             }
                         }
+                    }
 
-                        if (statuses[i].ID < maxid) {
-                            maxid = statuses[i].ID - 1
-                        }
+                    if (statuses[i].ID < maxid || maxid == 0) {
+                        maxid = statuses[i].ID - 1
                     }
                 }
 
                 if nodeletions {
                     log.Println("No posts to be deleted on this page. Trying next page ...")
                 } else {
+                    log.Println(deletedcount, "statuses deleted.")
                     // Wait before fetching a new page. Give server time to re-assemble pages.
                     time.Sleep(time.Duration(1) * time.Second)
                 }
