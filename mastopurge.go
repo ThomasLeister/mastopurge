@@ -139,7 +139,7 @@ type RespAccessToken struct {
 type Status struct {
 	ID uint64 `json:"id,string"`
 	//Content     string  `json:"content"`
-	CreatedAt string `json:"created_at"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 func main() {
@@ -353,31 +353,26 @@ func main() {
 					break
 				}
 
-				for i := 0; i < len(statuses); i++ {
+				for _, status := range statuses {
 					// Parse time
-					time, timeParseErr := time.Parse(time.RFC3339, statuses[i].CreatedAt)
-					if timeParseErr != nil {
-						log.Println("Failed to parse status time!")
-					} else {
-						if time.Before(maxtime) {
-							// Delete post
-							nodeletions = false
-							delResp, delErr := myhttpclient.ApiRequest(http.MethodDelete, "/api/v1/statuses/"+fmt.Sprint(statuses[i].ID), nil)
-							if delErr != nil {
-								log.Println("!!! Could not delete status " + fmt.Sprint(statuses[i].ID) + " !!!")
-							}
+					if status.CreatedAt.Before(maxtime) {
+						// Delete post
+						nodeletions = false
+						delResp, delErr := myhttpclient.ApiRequest(http.MethodDelete, "/api/v1/statuses/"+fmt.Sprint(status.ID), nil)
+						if delErr != nil {
+							log.Println("!!! Could not delete status " + fmt.Sprint(status.ID) + " !!!")
+						}
 
-							if string(delResp) == "{}" {
-								//log.Println("Status " + fmt.Sprint(statuses[i].ID) + " successfully deleted!")
-								deletedcount++
-							} else {
-								log.Println("Status " + fmt.Sprint(statuses[i].ID) + " could not be deleted :(")
-							}
+						if string(delResp) == "{}" {
+							//log.Println("Status " + fmt.Sprint(status.ID) + " successfully deleted!")
+							deletedcount++
+						} else {
+							log.Println("Status " + fmt.Sprint(status.ID) + " could not be deleted :(")
 						}
 					}
 
-					if statuses[i].ID < maxid || maxid == 0 {
-						maxid = statuses[i].ID - 1
+					if status.ID < maxid || maxid == 0 {
+						maxid = status.ID - 1
 					}
 				}
 
