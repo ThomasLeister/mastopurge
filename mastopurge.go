@@ -77,28 +77,29 @@ func (hc *Httpclient) ApiRequest(method string, endpoint string, params *url.Val
 	return body, nil
 }
 
-/*
- * Checks if API throttling is active. If yes, wait and repeat http request.
- */
-func rateLimited(res *http.Response) (ratelimited bool) {
-	if res.StatusCode == 429 {
-		ratelimited = true
-
-		var wait_duration time.Duration
-		wait_until_time, e_wait_until_time := time.Parse(time.RFC3339, res.Header.Get("X-Ratelimit-Reset"))
-		if e_wait_until_time != nil {
-			fmt.Println("Cool down time was not defined by server. Waiting for 30 seconds.")
-			wait_duration = time.Duration(30) * time.Second
-		} else {
-			wait_duration = time.Until(wait_until_time)
-		}
-
-		fmt.Printf(">>>>>> Server has run hot and is throttling. We have to wait for %d seconds until it has cooled down. Please be patient ...", int(wait_duration.Seconds()))
-		time.Sleep(wait_duration)
-
-		fmt.Println("Retrying ...")
+// rateLimited checks if API throttling is active. If yes, it waits the time
+// defined by the server (or a default of 30 seconds) and repeats the http
+// request. Returns whether the request was rate limited.
+func rateLimited(res *http.Response) bool {
+	// request was not rate limited - nothing to do.
+	if res.StatusCode != 429 {
+		return false
 	}
-	return
+
+	var waitDuration time.Duration
+	waitUntil, err := time.Parse(time.RFC3339, res.Header.Get("X-Ratelimit-Reset"))
+	if err != nil {
+		fmt.Println("Cool down time was not defined by server. Waiting for 30 seconds.")
+		waitDuration = 30 * time.Second
+	} else {
+		waitDuration = time.Until(waitUntil)
+	}
+
+	fmt.Printf(">>>>>> Server has run hot and is throttling. We have to wait for %d seconds until it has cooled down. Please be patient ...\n", int(waitDuration.Seconds()))
+	time.Sleep(waitDuration)
+
+	fmt.Println("Retrying ...")
+	return true
 }
 
 /*
