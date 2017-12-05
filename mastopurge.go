@@ -18,47 +18,51 @@ const (
 	Pagelimit = 40
 )
 
-/*
- * Httpclient object for easier interaction with API
- */
-type Httpclient struct {
+// APIClient provides an easy way to interface with the API.
+type APIClient struct {
 	Server      string
 	Timeout     time.Duration
 	Client      http.Client
-	Useragent   string
+	UserAgent   string
 	AccessToken string
 }
 
-func (hc *Httpclient) Init() {
-	hc.Client = http.Client{
-		Timeout: hc.Timeout,
+// Init sets the default UserAgent for the APIClient, and creates the HTTP
+// client as well.
+func (c *APIClient) Init() {
+	c.Client = http.Client{
+		Timeout: c.Timeout,
 	}
-	hc.Useragent = "MastoPurge"
+	c.UserAgent = "MastoPurge"
 }
 
-func (hc *Httpclient) ApiRequest(method string, endpoint string, params *url.Values) (body []byte, err error) {
+// Request makes a new request to the API. method is the HTTP method to use,
+// e.g. GET or POST, whereas endpoint is the API endpoint to which we should
+// make the request.
+func (c *APIClient) Request(method, endpoint string, params url.Values) (body []byte, err error) {
+	// Set up request: if it's a POST/PUT, we make the body urlencoded.
+	uri := c.Server + endpoint
+	var req *http.Request
+	if method == http.MethodPost || method == http.MethodPut {
+		req, err = http.NewRequest(method, uri, strings.NewReader(params.Encode()))
+	} else {
+		var paramsEncoded string
+		if params != nil {
+			paramsEncoded = "?" + params.Encode()
+		}
+		req, err = http.NewRequest(method, uri+paramsEncoded, nil)
+	}
+	if err != nil {
+		return
+	}
+
+	req.Header.Set("User-Agent", c.UserAgent)
+	if c.AccessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.AccessToken)
+	}
+
 	for {
-		var req *http.Request
-		var err error
-
-		if method == http.MethodPost || method == http.MethodPut {
-			req, err = http.NewRequest(method, hc.Server+endpoint, strings.NewReader(params.Encode()))
-		} else {
-			var paramsEncoded string
-			if params != nil {
-				paramsEncoded = "?" + params.Encode()
-			}
-			req, err = http.NewRequest(method, hc.Server+endpoint+paramsEncoded, nil)
-		}
-		if err != nil {
-			log.Fatal(err)
-		}
-		req.Header.Set("User-Agent", hc.Useragent)
-		if hc.AccessToken != "" {
-			req.Header.Set("Authorization", "Bearer "+hc.AccessToken)
-		}
-
-		res, geterr := hc.Client.Do(req)
+		res, geterr := c.Client.Do(req)
 		if geterr != nil {
 			log.Fatal(geterr)
 		}
@@ -165,9 +169,9 @@ func main() {
 	 * Set up settings and Httpclient
 	 */
 	settings := MastoPurgeSettings{}
-	myhttpclient := Httpclient{}
-	myhttpclient.Init()
-	myhttpclient.Timeout = time.Second * 5
+	hc := &APIClient{}
+	hc.Timeout = time.Second * 5
+	hc.Init()
 
 	/*
 	 * Check if configuration file .mastopurgesettings exists
@@ -181,7 +185,7 @@ func main() {
 		fmt.Println("Enter the domain of your Mastodon home instance: (e.g. \"metalhead.club\")")
 		fmt.Print("[Mastodon home instance]: ")
 		settings.Server = readFromConsole()
-		myhttpclient.Server = "https://" + settings.Server
+		hc.Server = "https://" + settings.Server
 
 		// Register application for user on server
 		log.Println(">>>>>> Registering MastoPurge App on " + settings.Server)
@@ -189,7 +193,7 @@ func main() {
 		params.Add("client_name", "MastoPurge")
 		params.Add("redirect_uris", "urn:ietf:wg:oauth:2.0:oob")
 		params.Add("scopes", "read write")
-		body, registerErr := myhttpclient.ApiRequest(http.MethodPost, "/api/v1/apps", &params)
+		body, registerErr := hc.Request(http.MethodPost, "/api/v1/apps", params)
 		if registerErr != nil {
 			log.Fatal(registerErr)
 		}
@@ -218,7 +222,7 @@ func main() {
 		params.Add("grant_type", "authorization_code")
 		params.Add("redirect_uri", "urn:ietf:wg:oauth:2.0:oob")
 		params.Add("code", code)
-		body, err = myhttpclient.ApiRequest(http.MethodPost, "/oauth/token", &params)
+		body, err = hc.Request(http.MethodPost, "/oauth/token", params)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -229,7 +233,7 @@ func main() {
 			log.Fatal(err)
 		}
 		settings.AccessToken = respAccessToken.AccessToken
-		myhttpclient.AccessToken = settings.AccessToken
+		hc.AccessToken = settings.AccessToken
 
 		// Write settings to config file
 		config_raw, _ = json.Marshal(settings)
@@ -249,8 +253,8 @@ func main() {
 			log.Fatal("Config file is malformed :(\nPlease consider deleting .mastopurgesettings from your file system.")
 		}
 
-		myhttpclient.Server = "https://" + settings.Server
-		myhttpclient.AccessToken = settings.AccessToken
+		hc.Server = "https://" + settings.Server
+		hc.AccessToken = settings.AccessToken
 	}
 
 	/*
@@ -258,7 +262,7 @@ func main() {
 	 */
 
 	log.Println("Requesting access to Mastodon account")
-	body, accessErr := myhttpclient.ApiRequest(http.MethodGet, "/api/v1/accounts/verify_credentials", nil)
+	body, accessErr := hc.Request(http.MethodGet, "/api/v1/accounts/verify_credentials", nil)
 	if accessErr != nil {
 		log.Fatal(accessErr)
 	} else {
@@ -336,7 +340,7 @@ func main() {
 				if maxid != 0 {
 					params.Add("max_id", fmt.Sprint(maxid))
 				}
-				resp, fetchErr := myhttpclient.ApiRequest(http.MethodGet, "/api/v1/accounts/"+strconv.Itoa(accountinfo.ID)+"/statuses", &params)
+				resp, fetchErr := hc.Request(http.MethodGet, "/api/v1/accounts/"+strconv.Itoa(accountinfo.ID)+"/statuses", params)
 				if fetchErr != nil {
 					log.Fatal(fetchErr)
 				}
@@ -359,7 +363,7 @@ func main() {
 					if status.CreatedAt.Before(maxtime) {
 						// Delete post
 						nodeletions = false
-						delResp, delErr := myhttpclient.ApiRequest(http.MethodDelete, "/api/v1/statuses/"+fmt.Sprint(status.ID), nil)
+						delResp, delErr := hc.Request(http.MethodDelete, "/api/v1/statuses/"+fmt.Sprint(status.ID), nil)
 						if delErr != nil {
 							log.Println("!!! Could not delete status " + fmt.Sprint(status.ID) + " !!!")
 						}
