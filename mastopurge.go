@@ -110,9 +110,10 @@ func rateLimited(res *http.Response) bool {
  * Helper function to easily read input from console
  */
 func readFromConsole() (stringstore string) {
-	reader := bufio.NewReader(os.Stdin)
-	stringstore, _ = reader.ReadString('\n')
-	stringstore = strings.Replace(stringstore, "\n", "", -1)
+	scanner := bufio.NewScanner(os.Stdin)
+	if scanner.Scan() {
+		stringstore = scanner.Text()
+	}
 	return
 }
 
