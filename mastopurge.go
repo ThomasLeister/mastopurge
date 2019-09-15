@@ -134,6 +134,14 @@ func idInSlice(a uint64, list []uint64) bool {
 		}
 	}
 	return false
+
+func writeSettings(s MastoPurgeSettings) {
+	// Write settings to config file
+	var config_raw, _ = json.Marshal(s)
+	var err = ioutil.WriteFile(".mastopurgesettings", config_raw, 0600)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 /*
@@ -145,6 +153,7 @@ type MastoPurgeSettings struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 	AccessToken  string `json:"access_token"`
+	MaxAgeHours  int    `json:"max_age_hours,omitempty"`
 }
 
 type AccountInfo struct {
@@ -254,14 +263,7 @@ func main() {
 		}
 		settings.AccessToken = respAccessToken.AccessToken
 		hc.AccessToken = settings.AccessToken
-
-		// Write settings to config file
-		config_raw, _ = json.Marshal(settings)
-		err = ioutil.WriteFile(".mastopurgesettings", config_raw, 0600)
-		if err != nil {
-			log.Fatal(err)
-		}
-
+		writeSettings(settings)
 	} else {
 		log.Println("MastoPurge configuration found! Reading config.")
 
@@ -301,37 +303,43 @@ func main() {
 			var maxage time.Duration
 			var maxtime time.Time
 
-			for {
-				fmt.Println("\nEnter the maximum age of the posts you want to KEEP, e.g. \"30 days\". Older posts will be deleted. Allowed units: hours, days, weeks, months.")
-				fmt.Print("[Maximum post age]: ")
-				maxagestring := readFromConsole()
-				parts := strings.Split(maxagestring, " ")
+			if settings.MaxAgeHours != 0 {
+				maxage = time.Hour * time.Duration(settings.MaxAgeHours)
+			} else {
+				for {
+					fmt.Println("\nEnter the maximum age of the posts you want to KEEP, e.g. \"30 days\". Older posts will be deleted. Allowed units: hours, days, weeks, months.")
+					fmt.Print("[Maximum post age]: ")
+					maxagestring := readFromConsole()
+					parts := strings.Split(maxagestring, " ")
 
-				if len(parts) == 2 {
-					maxagenum, converr := strconv.Atoi(parts[0])
-					if converr == nil {
-						var factor time.Duration
+					if len(parts) == 2 {
+						maxagenum, converr := strconv.Atoi(parts[0])
+						if converr == nil {
+							var factor time.Duration
 
-						switch parts[1] {
-						case "hours":
-							factor = time.Hour
-						case "days":
-							factor = time.Hour * time.Duration(24)
-						case "weeks":
-							factor = time.Hour * time.Duration(24*7)
-						case "months":
-							factor = time.Hour * time.Duration(24*30)
-						default:
-							factor = 0
-						}
+							switch parts[1] {
+							case "hours":
+								factor = time.Hour
+							case "days":
+								factor = time.Hour * time.Duration(24)
+							case "weeks":
+								factor = time.Hour * time.Duration(24*7)
+							case "months":
+								factor = time.Hour * time.Duration(24*30)
+							default:
+								factor = 0
+							}
 
-						if factor != 0 {
-							maxage = factor * time.Duration(maxagenum)
-							break
+							if factor != 0 {
+								maxage = factor * time.Duration(maxagenum)
+								settings.MaxAgeHours = int(maxage / time.Hour)
+								writeSettings(settings)
+								break
+							}
 						}
 					}
+					fmt.Println("Error: Invalid age format.")
 				}
-				fmt.Println("Error: Invalid age format.")
 			}
 
 			maxtime = time.Now().Add(-maxage)
