@@ -117,6 +117,25 @@ func readFromConsole() (stringstore string) {
 	return
 }
 
+// Given an array of statuses, returns an array of their ids
+func getStatusIds(vs []Status) []uint64 {
+	vsm := make([]uint64, len(vs))
+	for i, v := range vs {
+		vsm[i] = v.ID
+	}
+	return vsm
+}
+
+// Returns true if `a` is an element of the array
+func idInSlice(a uint64, list []uint64) bool {
+	for _, b := range list {
+		if b == a {
+			return true
+		}
+	}
+	return false
+}
+
 /*
  * Various data structs
  */
@@ -329,6 +348,23 @@ func main() {
 			var maxid uint64 = 0
 			var deletedcount uint16
 
+			// Get IDs of pinned posts (these won't be deleted)
+			log.Printf("========== Fetching pinned statuses ==========\n")
+			params := url.Values{}
+			params.Add("pinned", "true")
+			resp, fetchErr := hc.Request(http.MethodGet, "/api/v1/accounts/"+strconv.Itoa(accountinfo.ID)+"/statuses", params)
+			if fetchErr != nil {
+				log.Fatal(fetchErr)
+			}
+			var pinnedStatuses []Status
+			err = json.Unmarshal(resp, &pinnedStatuses)
+			if err != nil {
+				// Maybe server response is an error message?
+				fmt.Println(string(resp))
+				log.Fatal(err)
+			}
+			var pinnedStatusIds = getStatusIds(pinnedStatuses)
+
 			// Fetch new pages until there are no more pages
 			for {
 				log.Printf("========== Fetching new statuses until status %d ==========\n", maxid)
@@ -362,6 +398,10 @@ func main() {
 				for _, status := range statuses {
 					// Parse time
 					if status.CreatedAt.Before(maxtime) {
+						if idInSlice(status.ID, pinnedStatusIds) {
+							log.Println("Status " + fmt.Sprint(status.ID) + " is pinned; not deleting.")
+							continue
+						}
 						// Delete post
 						nodeletions = false
 						delResp, delErr := hc.Request(http.MethodDelete, "/api/v1/statuses/"+fmt.Sprint(status.ID), nil)
