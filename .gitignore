@@ -1,4 +1,8 @@
 ### Ignore binary
 mastopurge
+out/
 ### Ignore config
 .mastopurgesettings
+
+### GoLand IDE
+.idea/
