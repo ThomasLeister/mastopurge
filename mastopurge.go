@@ -81,10 +81,11 @@ type Status struct {
 }
 
 var (
-	noninteractiveMode = flag.Bool("noninteractive", false, "Run in non-interactive mode, suitable for eg. cron jobs. (On first run with a missing settings file, the config process will run interactively.)")
+	noninteractiveMode = flag.Bool("noninteractive", false, "Run in non-interactive mode, suitable for eg. cron jobs. (When run with a missing settings file, the config process will run interactively.)")
 	maxAgeArgument     = flag.String("maxAge", "", "Max age of posts you want to keep. Required when running in non-interactive mode. Allowed units: hours, days, weeks, months, years. Example: \"6 months\".")
 	configFile         = flag.String("config", ".mastopurgesettings", "Path + filename for the settings file.")
 	printVersion       = flag.Bool("version", false, "Print version, and exit.")
+	quietMode          = flag.Bool("quiet", false, "Reduce output to the most important messages only.")
 	dryRun             = flag.Bool("dryRun", false, "Run MastoPurge to preview its results, but without actually deleting any statuses.")
 )
 
@@ -100,7 +101,7 @@ func main() {
 
 	interactiveMode := !(*noninteractiveMode)
 
-	if interactiveMode {
+	if interactiveMode && !*quietMode {
 		/*
 		 * Add fancyness!
 		 */
@@ -139,7 +140,9 @@ func main() {
 		hc.Server = "https://" + settings.Server
 
 		// Register application for user on server
-		log.Println(">>>>>> Registering MastoPurge App on " + settings.Server)
+		if !*quietMode {
+			log.Println(">>>>>> Registering MastoPurge App on " + settings.Server)
+		}
 		params := url.Values{}
 		params.Add("client_name", "MastoPurge")
 		params.Add("redirect_uris", "urn:ietf:wg:oauth:2.0:oob")
@@ -194,7 +197,9 @@ func main() {
 		}
 
 	} else {
-		log.Println("MastoPurge configuration found! Reading config.")
+		if !*quietMode {
+			log.Println("MastoPurge configuration found! Reading config.")
+		}
 
 		/*
 		 * Load settings
@@ -212,7 +217,9 @@ func main() {
 	 * Check if account access is okay
 	 */
 
-	log.Println("Requesting access to Mastodon account")
+	if !*quietMode {
+		log.Println("Requesting access to Mastodon account")
+	}
 	body, accessErr := hc.Request(http.MethodGet, "/api/v1/accounts/verify_credentials", nil)
 	if accessErr != nil {
 		log.Fatal(accessErr)
@@ -221,12 +228,16 @@ func main() {
 		err := json.Unmarshal(body, &accountinfo)
 
 		if accountinfo.ID == 0 {
-			log.Println("Access DENIED :-(")
+			if !*quietMode {
+				log.Println("Access DENIED :-(")
+			}
 			log.Fatalf("Unfortunately API access was not granted. Consider deleting '%s' and starting MastoPurge again!", *configFile)
 		} else {
-			log.Println("Access GRANTED :-)")
-			log.Println(">>> Account ID:", accountinfo.ID)
-			log.Println(">>> Username:", accountinfo.Username)
+			if !*quietMode {
+				log.Println("Access GRANTED :-)")
+				log.Println(">>> Account ID:", accountinfo.ID)
+				log.Println(">>> Username:", accountinfo.Username)
+			}
 
 			// Do some date calculations ...
 			var maxage time.Duration
@@ -298,7 +309,9 @@ func main() {
 			}
 
 			// Get IDs of pinned posts (these won't be deleted)
-			log.Printf("========== Fetching pinned statuses ==========\n")
+			if !*quietMode {
+				log.Printf("========== Fetching pinned statuses ==========\n")
+			}
 			params := url.Values{}
 			params.Add("pinned", "true")
 			resp, fetchErr := hc.Request(http.MethodGet, "/api/v1/accounts/"+strconv.Itoa(accountinfo.ID)+"/statuses", params)
@@ -320,7 +333,9 @@ func main() {
 
 			// Fetch new pages until there are no more pages
 			for {
-				log.Printf("========== Fetching new statuses until status %d ==========\n", maxid)
+				if !*quietMode {
+					log.Printf("========== Fetching new statuses until status %d ==========\n", maxid)
+				}
 
 				nodeletions := true
 
@@ -352,7 +367,9 @@ func main() {
 					// Parse time
 					if status.CreatedAt.Before(maxtime) {
 						if idInSlice(status.ID, pinnedStatusIds) {
-							log.Println("Status " + fmt.Sprint(status.ID) + " is pinned; not deleting.")
+							if !*quietMode {
+								log.Println("Status " + fmt.Sprint(status.ID) + " is pinned; not deleting.")
+							}
 							continue
 						}
 
@@ -386,12 +403,18 @@ func main() {
 				}
 
 				if nodeletions {
-					log.Println("No posts to be deleted on this page. Trying next page ...")
+					if !*quietMode {
+						log.Println("No posts to be deleted on this page. Trying next page ...")
+					}
 				} else {
 					if deletedcount == 0 && *dryRun {
-						log.Println("0 statuses deleted, because -dryRun was passed.")
+						if !*quietMode {
+							log.Println("0 statuses deleted, because -dryRun was passed.")
+						}
 					} else {
-						log.Println(deletedcount, "statuses deleted.")
+						if !*quietMode {
+							log.Println(deletedcount, "statuses deleted.")
+						}
 					}
 					// Wait before fetching a new page. Give server time to re-assemble pages.
 					time.Sleep(time.Duration(1) * time.Second)
