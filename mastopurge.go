@@ -369,11 +369,17 @@ func main() {
 							log.Println("!!! Could not delete status " + fmt.Sprint(status.ID) + " !!!")
 						}
 
-						if string(delResp) == "{}" {
-							//log.Println("Status " + fmt.Sprint(status.ID) + " successfully deleted!")
+						var delStatus Status
+						err = json.Unmarshal(delResp, &delStatus)
+						if err != nil {
+							fmt.Println(string(delResp))
+							log.Fatal(err)
+						}
+
+						if delStatus.ID == status.ID {
 							deletedcount++
 						} else {
-							log.Println("Status " + fmt.Sprint(status.ID) + " could not be deleted :(")
+							log.Println("Status " + fmt.Sprint(status.ID) + " could not be deleted :( \nResponse: " + string(delResp))
 						}
 					}
 
