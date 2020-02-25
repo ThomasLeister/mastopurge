@@ -18,6 +18,8 @@ const (
 	Pagelimit = 40
 )
 
+var versionString string = "0.0.0"
+
 // APIClient provides an easy way to interface with the API.
 type APIClient struct {
 	Server      string
@@ -162,9 +164,8 @@ func main() {
 	fmt.Println("|_| |_| |_|\\__,_|___/\\__\\___/| .__/ \\__,_|_|  \\__, |\\___|")
 	fmt.Println("                             |_|              |___/      ")
 	fmt.Println("    ... add German Datenhygiene to your Mastodon-Account!")
-	fmt.Print("\n\n")
 
-	log.Println("Version 1.1.0")
+	fmt.Printf("\nVersion %s \n\n", versionString)
 
 	/*
 	 * Set up settings and Httpclient
