@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -18,94 +19,6 @@ const (
 	Pagelimit = 40
 )
 
-// APIClient provides an easy way to interface with the API.
-type APIClient struct {
-	Server      string
-	Timeout     time.Duration
-	Client      http.Client
-	UserAgent   string
-	AccessToken string
-}
-
-// Init sets the default UserAgent for the APIClient, and creates the HTTP
-// client as well.
-func (c *APIClient) Init() {
-	c.Client = http.Client{
-		Timeout: c.Timeout,
-	}
-	c.UserAgent = "MastoPurge"
-}
-
-// Request makes a new request to the API. method is the HTTP method to use,
-// e.g. GET or POST, whereas endpoint is the API endpoint to which we should
-// make the request.
-func (c *APIClient) Request(method, endpoint string, params url.Values) (body []byte, err error) {
-	// Set up request: if it's a POST/PUT, we make the body urlencoded.
-	uri := c.Server + endpoint
-	var req *http.Request
-	if method == http.MethodPost || method == http.MethodPut {
-		req, err = http.NewRequest(method, uri, strings.NewReader(params.Encode()))
-	} else {
-		var paramsEncoded string
-		if params != nil {
-			paramsEncoded = "?" + params.Encode()
-		}
-		req, err = http.NewRequest(method, uri+paramsEncoded, nil)
-	}
-	if err != nil {
-		return
-	}
-
-	req.Header.Set("User-Agent", c.UserAgent)
-	if c.AccessToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.AccessToken)
-	}
-
-	for {
-		res, geterr := c.Client.Do(req)
-		if geterr != nil {
-			log.Fatal(geterr)
-		}
-
-		body, err = ioutil.ReadAll(res.Body)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// Only exit if request was not API rate limited
-		if rateLimited(res) == false {
-			break
-		}
-	}
-
-	return body, nil
-}
-
-// rateLimited checks if API throttling is active. If yes, it waits the time
-// defined by the server (or a default of 30 seconds) and repeats the http
-// request. Returns whether the request was rate limited.
-func rateLimited(res *http.Response) bool {
-	// request was not rate limited - nothing to do.
-	if res.StatusCode != 429 {
-		return false
-	}
-
-	var waitDuration time.Duration
-	waitUntil, err := time.Parse(time.RFC3339, res.Header.Get("X-Ratelimit-Reset"))
-	if err != nil {
-		fmt.Println("Cool down time was not defined by server. Waiting for 30 seconds.")
-		waitDuration = 30 * time.Second
-	} else {
-		waitDuration = time.Until(waitUntil)
-	}
-
-	fmt.Printf(">>>>>> Server has run hot and is throttling. We have to wait for %d seconds until it has cooled down. Please be patient ...\n", int(waitDuration.Seconds()))
-	time.Sleep(waitDuration)
-
-	fmt.Println("Retrying ...")
-	return true
-}
-
 /*
  * Helper function to easily read input from console
  */
@@ -115,6 +28,25 @@ func readFromConsole() (stringstore string) {
 		stringstore = scanner.Text()
 	}
 	return
+}
+
+// Given an array of statuses, returns an array of their ids
+func getStatusIds(vs []Status) []uint64 {
+	vsm := make([]uint64, len(vs))
+	for i, v := range vs {
+		vsm[i] = v.ID
+	}
+	return vsm
+}
+
+// Returns true if `a` is an element of the array
+func idInSlice(a uint64, list []uint64) bool {
+	for _, b := range list {
+		if b == a {
+			return true
+		}
+	}
+	return false
 }
 
 /*
@@ -148,23 +80,42 @@ type Status struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+var (
+	noninteractiveMode = flag.Bool("noninteractive", false, "Run in non-interactive mode, suitable for eg. cron jobs. (When run with a missing settings file, the config process will run interactively.)")
+	maxAgeArgument     = flag.String("maxage", "", "Max age of posts you want to keep. Required when running in non-interactive mode. Allowed units: hours, days, weeks, months, years. Example: \"6 months\".")
+	configFile         = flag.String("config", ".mastopurgesettings", "Path + filename for the settings file.")
+	printVersion       = flag.Bool("version", false, "Print version, and exit.")
+	quietMode          = flag.Bool("quiet", false, "Reduce output to the most important messages only.")
+	dryRun             = flag.Bool("dryrun", false, "Run MastoPurge to preview its results, but without actually deleting any statuses.")
+)
+
+var versionString string = "0.0.0"
+
 func main() {
-	var err error
+	flag.Parse()
 
-	/*
-	 * Add fancyness!
-	 */
-	fmt.Println("\nWelcome to ...")
-	fmt.Println("                     _                                   ")
-	fmt.Println(" _ __ ___   __ _ ___| |_ ___  _ __  _   _ _ __ __ _  ___ ")
-	fmt.Println("| '_ ` _ \\ / _` / __| __/ _ \\| '_ \\| | | | '__/ _` |/ _ \\")
-	fmt.Println("| | | | | | (_| \\__ \\ || (_) | |_) | |_| | | | (_| |  __/")
-	fmt.Println("|_| |_| |_|\\__,_|___/\\__\\___/| .__/ \\__,_|_|  \\__, |\\___|")
-	fmt.Println("                             |_|              |___/      ")
-	fmt.Println("    ... add German Datenhygiene to your Mastodon-Account!")
-	fmt.Print("\n\n")
+	if *printVersion {
+		fmt.Printf("MastoPurge version %s\n", versionString)
+		os.Exit(0)
+	}
 
-	log.Println("Version 1.1.0")
+	interactiveMode := !(*noninteractiveMode)
+
+	if interactiveMode && !*quietMode {
+		/*
+		 * Add fancyness!
+		 */
+		fmt.Println("\nWelcome to ...")
+		fmt.Println("                     _                                   ")
+		fmt.Println(" _ __ ___   __ _ ___| |_ ___  _ __  _   _ _ __ __ _  ___ ")
+		fmt.Println("| '_ ` _ \\ / _` / __| __/ _ \\| '_ \\| | | | '__/ _` |/ _ \\")
+		fmt.Println("| | | | | | (_| \\__ \\ || (_) | |_) | |_| | | | (_| |  __/")
+		fmt.Println("|_| |_| |_|\\__,_|___/\\__\\___/| .__/ \\__,_|_|  \\__, |\\___|")
+		fmt.Println("                             |_|              |___/      ")
+		fmt.Println("    ... add German Datenhygiene to your Mastodon-Account!")
+		fmt.Print("\n\n")
+		fmt.Printf("Version %s\n\n", versionString)
+	}
 
 	/*
 	 * Set up settings and Httpclient
@@ -175,13 +126,13 @@ func main() {
 	hc.Init()
 
 	/*
-	 * Check if configuration file .mastopurgesettings exists
+	 * Check if configuration file (*configFile, default .mastopurgesettings) exists
 	 * - Create if it does not exist
 	 * - Use if exists
 	 */
-	config_raw, readerr := ioutil.ReadFile(".mastopurgesettings")
+	configRaw, readerr := ioutil.ReadFile(*configFile)
 	if readerr != nil {
-		log.Println("MastoPurge configuration file .mastopurgesettings does not exist or is not accessible.")
+		log.Printf("MastoPurge configuration file %s does not exist or is not accessible.\n", *configFile)
 		fmt.Println("\nFirst we need to connect MastoPurge to your Mastodon account.")
 		fmt.Println("Enter the domain of your Mastodon home instance: (e.g. \"metalhead.club\")")
 		fmt.Print("[Mastodon home instance]: ")
@@ -189,7 +140,9 @@ func main() {
 		hc.Server = "https://" + settings.Server
 
 		// Register application for user on server
-		log.Println(">>>>>> Registering MastoPurge App on " + settings.Server)
+		if !*quietMode {
+			log.Println(">>>>>> Registering MastoPurge App on " + settings.Server)
+		}
 		params := url.Values{}
 		params.Add("client_name", "MastoPurge")
 		params.Add("redirect_uris", "urn:ietf:wg:oauth:2.0:oob")
@@ -201,7 +154,7 @@ func main() {
 
 		// Parse response JSON
 		respAppRegister := RespAppRegister{}
-		err = json.Unmarshal(body, &respAppRegister)
+		err := json.Unmarshal(body, &respAppRegister)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -210,9 +163,9 @@ func main() {
 
 		// User must manually authenticate app
 		authurl := "https://" + settings.Server + "/oauth/authorize?scope=read%20write&response_type=code&redirect_uri=urn:ietf:wg:oauth:2.0:oob&client_id=" + settings.ClientID
-		fmt.Println("\n\nPlease visit this URL in your webbrowser:")
+		fmt.Println("\nPlease visit this URL in your web browser:")
 		fmt.Println(authurl)
-		fmt.Println("\n\n... and enter the code here:")
+		fmt.Println("\n... and enter the code here:")
 		fmt.Print("[Auth code]: ")
 		code := readFromConsole()
 
@@ -237,21 +190,23 @@ func main() {
 		hc.AccessToken = settings.AccessToken
 
 		// Write settings to config file
-		config_raw, _ = json.Marshal(settings)
-		err = ioutil.WriteFile(".mastopurgesettings", config_raw, 0600)
+		configRaw, _ = json.Marshal(settings)
+		err = ioutil.WriteFile(*configFile, configRaw, 0600)
 		if err != nil {
 			log.Fatal(err)
 		}
 
 	} else {
-		log.Println("MastoPurge configuration found! Reading config.")
+		if !*quietMode {
+			log.Println("MastoPurge configuration found! Reading config.")
+		}
 
 		/*
 		 * Load settings
 		 */
-		err = json.Unmarshal(config_raw, &settings)
+		err := json.Unmarshal(configRaw, &settings)
 		if err != nil {
-			log.Fatal("Config file is malformed :(\nPlease consider deleting .mastopurgesettings from your file system.")
+			log.Fatalf("Config file is malformed :(\nPlease consider deleting '%s' from your file system and starting MastoPurge again.", *configFile)
 		}
 
 		hc.Server = "https://" + settings.Server
@@ -262,30 +217,46 @@ func main() {
 	 * Check if account access is okay
 	 */
 
-	log.Println("Requesting access to Mastodon account")
+	if !*quietMode {
+		log.Println("Requesting access to Mastodon account")
+	}
 	body, accessErr := hc.Request(http.MethodGet, "/api/v1/accounts/verify_credentials", nil)
 	if accessErr != nil {
 		log.Fatal(accessErr)
 	} else {
 		accountinfo := AccountInfo{}
-		err = json.Unmarshal(body, &accountinfo)
+		err := json.Unmarshal(body, &accountinfo)
 
 		if accountinfo.ID == 0 {
-			log.Println("Access DENIED :-(")
-			log.Fatal("Unfortunately API access was not granted. Consider deleting the .mastopurgesettings and starting MastoPurge again!")
+			if !*quietMode {
+				log.Println("Access DENIED :-(")
+			}
+			log.Fatalf("Unfortunately API access was not granted. Consider deleting '%s' and starting MastoPurge again!", *configFile)
 		} else {
-			log.Println("Access GRANTED :-)")
-			fmt.Println(">>> Account ID:", accountinfo.ID)
-			fmt.Println(">>> Username:", accountinfo.Username)
+			if !*quietMode {
+				log.Println("Access GRANTED :-)")
+				log.Println(">>> Account ID:", accountinfo.ID)
+				log.Println(">>> Username:", accountinfo.Username)
+			}
 
 			// Do some date calculations ...
 			var maxage time.Duration
 			var maxtime time.Time
 
 			for {
-				fmt.Println("\nEnter the maximum age of the posts you want to KEEP, e.g. \"30 days\". Older posts will be deleted. Allowed units: hours, days, weeks, months.")
-				fmt.Print("[Maximum post age]: ")
-				maxagestring := readFromConsole()
+				maxagestring := *maxAgeArgument
+				if maxagestring == "" {
+					if interactiveMode {
+						fmt.Println("\nEnter the maximum age of the posts you want to KEEP, e.g. \"30 days\". Older posts will be deleted. Allowed units: hours, days, weeks, months, years.")
+						fmt.Print("[Maximum post age]: ")
+						maxagestring = readFromConsole()
+					} else {
+						log.Println("missing required argument --maxage")
+						flag.PrintDefaults()
+						os.Exit(1)
+					}
+				}
+
 				parts := strings.Split(maxagestring, " ")
 
 				if len(parts) == 2 {
@@ -294,14 +265,16 @@ func main() {
 						var factor time.Duration
 
 						switch parts[1] {
-						case "hours":
+						case "hours", "hour":
 							factor = time.Hour
-						case "days":
+						case "days", "day":
 							factor = time.Hour * time.Duration(24)
-						case "weeks":
+						case "weeks", "week":
 							factor = time.Hour * time.Duration(24*7)
-						case "months":
+						case "months", "month":
 							factor = time.Hour * time.Duration(24*30)
+						case "years", "year":
+							factor = time.Hour * time.Duration(24*365)
 						default:
 							factor = 0
 						}
@@ -312,26 +285,58 @@ func main() {
 						}
 					}
 				}
-				fmt.Println("Error: Invalid age format.")
+
+				if interactiveMode {
+					fmt.Println("Error: Invalid age format.")
+				} else {
+					log.Fatalf("Invalid maximum age \"%s\".", maxagestring)
+				}
 			}
 
 			maxtime = time.Now().Add(-maxage)
-			fmt.Println("Okay, let's do it! ")
-			fmt.Println("Posts older than", maxtime, "will be deleted!")
-			fmt.Print("Loading gun ")
-			for i := 0; i < 40; i++ {
-				fmt.Print(".")
-				time.Sleep(time.Duration(50) * time.Millisecond)
+			if interactiveMode {
+				fmt.Println("Okay, let's do it! ")
+				fmt.Println("Posts older than", maxtime, "will be deleted!")
+				fmt.Print("Loading gun ")
+				for i := 0; i < 40; i++ {
+					fmt.Print(".")
+					time.Sleep(time.Duration(50) * time.Millisecond)
+				}
+				time.Sleep(time.Duration(2) * time.Second)
+				fmt.Print("\n\n")
+			} else {
+				log.Println("Posts older than", maxtime.Format("Jan 2, 2006 at 3:04:05 PM MST"), "will be deleted!")
 			}
-			time.Sleep(time.Duration(2) * time.Second)
-			fmt.Print("\n\n")
+
+			// Get IDs of pinned posts (these won't be deleted)
+			if !*quietMode {
+				log.Printf("========== Fetching pinned statuses ==========\n")
+			}
+			params := url.Values{}
+			params.Add("pinned", "true")
+			resp, fetchErr := hc.Request(http.MethodGet, "/api/v1/accounts/"+strconv.Itoa(accountinfo.ID)+"/statuses", params)
+			if fetchErr != nil {
+				log.Fatal(fetchErr)
+			}
+			var pinnedStatuses []Status
+			err = json.Unmarshal(resp, &pinnedStatuses)
+			if err != nil {
+				// Maybe server response is an error message?
+				log.Println(string(resp))
+				log.Fatal(err)
+			}
+			pinnedStatusIds := getStatusIds(pinnedStatuses)
+			log.Printf("Found %d pinned statuses, which will not be deleted.", len(pinnedStatusIds))
 
 			var maxid uint64 = 0
+			var prevmaxid uint64 = 1
 			var deletedcount uint16
 
 			// Fetch new pages until there are no more pages
 			for {
-				log.Printf("========== Fetching new statuses until status %d ==========\n", maxid)
+				if !*quietMode {
+					log.Printf("========== Fetching new statuses until status %d ==========\n", maxid)
+				}
 
 				nodeletions := true
 
@@ -350,55 +355,84 @@ func main() {
 				err = json.Unmarshal(resp, &statuses)
 				if err != nil {
 					// Maybe server response is an error message?
-					fmt.Println(string(resp))
+					log.Println(string(resp))
 					log.Fatal(err)
 				}
 
-				// Exit killer loop if there are no more statuses
-				if len(statuses) == 0 {
+				// Exit killer loop if there are no more statuses or if we are in a loop (maxid == prevmaxid)
+				if (len(statuses) == 0) || (maxid == prevmaxid) {
 					break
 				}
 
 				for _, status := range statuses {
 					// Parse time
 					if status.CreatedAt.Before(maxtime) {
+						if idInSlice(status.ID, pinnedStatusIds) {
+							if !*quietMode {
+								log.Println("Status " + fmt.Sprint(status.ID) + " is pinned; not deleting.")
+							}
+							continue
+						}
+
 						// Delete post
 						nodeletions = false
-						delResp, delErr := hc.Request(http.MethodDelete, "/api/v1/statuses/"+fmt.Sprint(status.ID), nil)
-						if delErr != nil {
-							log.Println("!!! Could not delete status " + fmt.Sprint(status.ID) + " !!!")
-						}
 
-						var delStatus Status
-						err = json.Unmarshal(delResp, &delStatus)
-						if err != nil {
-							fmt.Println(string(delResp))
-							log.Fatal(err)
-						}
+						if !*dryRun {
+							delResp, delErr := hc.Request(http.MethodDelete, "/api/v1/statuses/"+fmt.Sprint(status.ID), nil)
+							if delErr != nil {
+								log.Println("!!! Could not delete status " + fmt.Sprint(status.ID) + " !!!")
+							}
 
-						if delStatus.ID == status.ID {
-							deletedcount++
-						} else {
-							log.Println("Status " + fmt.Sprint(status.ID) + " could not be deleted :( \nResponse: " + string(delResp))
+							var delStatus Status
+							err = json.Unmarshal(delResp, &delStatus)
+							if err != nil {
+								log.Println(string(delResp))
+								log.Fatal(err)
+							}
+
+							if delStatus.ID == status.ID {
+								deletedcount++
+							} else {
+								log.Println("Status " + fmt.Sprint(status.ID) + " could not be deleted :( \nResponse: " + string(delResp))
+							}
 						}
 					}
 
 					if status.ID < maxid || maxid == 0 {
 						maxid = status.ID - 1
+						prevmaxid = maxid
 					}
 				}
 
 				if nodeletions {
-					log.Println("No posts to be deleted on this page. Trying next page ...")
+					if !*quietMode {
+						log.Println("No posts to be deleted on this page. Trying next page ...")
+					}
 				} else {
-					log.Println(deletedcount, "statuses deleted.")
+					if deletedcount == 0 && *dryRun {
+						if !*quietMode {
+							log.Println("0 statuses deleted, because -dryRun was passed.")
+						}
+					} else {
+						if !*quietMode {
+							log.Println(deletedcount, "statuses deleted.")
+						}
+					}
 					// Wait before fetching a new page. Give server time to re-assemble pages.
 					time.Sleep(time.Duration(1) * time.Second)
 				}
 			}
 
+			if deletedcount == 0 && *dryRun {
+				log.Println("[dryRun] 0 statuses deleted in total, because -dryRun was passed.")
+			}
+
 			// No more pages, done! :-)
-			fmt.Println(">>>>>> ", deletedcount, "statuses were successfully deleted.")
+			if interactiveMode {
+				fmt.Println(">>>>>> ", deletedcount, "statuses were successfully deleted.")
+			} else {
+				log.Println(deletedcount, "statuses were successfully deleted.")
+			}
 		}
 	}
 }
