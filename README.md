@@ -51,7 +51,7 @@ Download latest binary from https://github.com/ThomasLeister/mastopurge/releases
 5. Enter the code into MastoPurge
 6. Select a timespan of your choice. Posts from this time range will *not* be deleted. Older posts will be removed. _(Note: "pinned posts" will **not** be deleted!)_
 7. Wait. Removing hundreds or thousands of posts can take a long time due to API limits.
-8. MastoPurge will remember your account the next time you use it. No more authentication needed. If you want to use another account, delete the .mastopurgesettings file.
+8. MastoPurge will remember your account the next time you use it. No more authentication needed. If you want to use another account, delete the `.mastopurgesettings` file.
 
 
 ### Non-interactive mode
