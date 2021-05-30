@@ -82,11 +82,11 @@ type Status struct {
 
 var (
 	noninteractiveMode = flag.Bool("noninteractive", false, "Run in non-interactive mode, suitable for eg. cron jobs. (When run with a missing settings file, the config process will run interactively.)")
-	maxAgeArgument     = flag.String("maxAge", "", "Max age of posts you want to keep. Required when running in non-interactive mode. Allowed units: hours, days, weeks, months, years. Example: \"6 months\".")
+	maxAgeArgument     = flag.String("maxage", "", "Max age of posts you want to keep. Required when running in non-interactive mode. Allowed units: hours, days, weeks, months, years. Example: \"6 months\".")
 	configFile         = flag.String("config", ".mastopurgesettings", "Path + filename for the settings file.")
 	printVersion       = flag.Bool("version", false, "Print version, and exit.")
 	quietMode          = flag.Bool("quiet", false, "Reduce output to the most important messages only.")
-	dryRun             = flag.Bool("dryRun", false, "Run MastoPurge to preview its results, but without actually deleting any statuses.")
+	dryRun             = flag.Bool("dryrun", false, "Run MastoPurge to preview its results, but without actually deleting any statuses.")
 )
 
 const MastoPurgeVersion = "1.1.0"

@@ -49,6 +49,25 @@ Download latest binary from https://github.com/ThomasLeister/mastopurge/releases
 3. MastoPurge will ask you to visit a certain URL. Open this URL in your web browser
 4. Authorize MastoPurge to access your Mastodon account. A Code will be displayed.
 5. Enter the code into MastoPurge
-6. Select a timespan of your choice. Posts from this time range will *not* be deleted. Older posts will be removed.
+6. Select a timespan of your choice. Posts from this time range will *not* be deleted. Older posts will be removed. _(Note: "pinned posts" will **not** be deleted!)_
 7. Wait. Removing hundreds or thousands of posts can take a long time due to API limits.
 8. MastoPurge will remember your account the next time you use it. No more authentication needed. If you want to use another account, delete the .mastopurgesettings file.
+
+
+### Non-interactive mode
+
+After you have run Mastopurge in interactive mode, once (see instructions above), you will be able to run it in non-interactive mode, if you like. This mode enables you to run Mastopurge automatically e.g. as a Crob Job.
+
+Example:
+
+```
+./mastopurge --noninteractive --maxage "30 days"
+```
+
+### Dry-run mode
+
+If you'd like to check whether Mastopurge works properly (without actually deleting your posts!), you can try the "dry run mode":
+
+```
+./mastopurge --noninteractive --maxage "30 days" --dryrun
+```
