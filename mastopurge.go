@@ -329,6 +329,7 @@ func main() {
 			log.Printf("Found %d pinned statuses, which will not be deleted.", len(pinnedStatusIds))
 
 			var maxid uint64 = 0
+			var prevmaxid uint64 = 1
 			var deletedcount uint16
 
 			// Fetch new pages until there are no more pages
@@ -358,8 +359,8 @@ func main() {
 					log.Fatal(err)
 				}
 
-				// Exit killer loop if there are no more statuses
-				if len(statuses) == 0 {
+				// Exit killer loop if there are no more statuses or if we are in a loop (maxid == prevmaxid)
+				if (len(statuses) == 0) || (maxid == prevmaxid) {
 					break
 				}
 
@@ -399,6 +400,7 @@ func main() {
 
 					if status.ID < maxid || maxid == 0 {
 						maxid = status.ID - 1
+						prevmaxid = maxid
 					}
 				}
 
