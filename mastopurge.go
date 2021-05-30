@@ -89,13 +89,13 @@ var (
 	dryRun             = flag.Bool("dryrun", false, "Run MastoPurge to preview its results, but without actually deleting any statuses.")
 )
 
-const MastoPurgeVersion = "1.1.0"
+var versionString string = "0.0.0"
 
 func main() {
 	flag.Parse()
 
 	if *printVersion {
-		fmt.Printf("MastoPurge version %s\n", MastoPurgeVersion)
+		fmt.Printf("MastoPurge version %s\n", versionString)
 		os.Exit(0)
 	}
 
@@ -114,7 +114,7 @@ func main() {
 		fmt.Println("                             |_|              |___/      ")
 		fmt.Println("    ... add German Datenhygiene to your Mastodon-Account!")
 		fmt.Print("\n\n")
-		fmt.Printf("Version %s\n\n", MastoPurgeVersion)
+		fmt.Printf("Version %s\n\n", versionString)
 	}
 
 	/*
