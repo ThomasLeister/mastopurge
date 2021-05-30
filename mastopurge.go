@@ -251,7 +251,7 @@ func main() {
 						fmt.Print("[Maximum post age]: ")
 						maxagestring = readFromConsole()
 					} else {
-						log.Println("missing required argument -maxAge")
+						log.Println("missing required argument --maxage")
 						flag.PrintDefaults()
 						os.Exit(1)
 					}
