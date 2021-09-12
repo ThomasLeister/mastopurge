@@ -427,12 +427,26 @@ func main() {
 				log.Println("[dryRun] 0 statuses deleted in total, because -dryRun was passed.")
 			}
 
-			// No more pages, done! :-)
+			// No more pages, done deleting posts. :-)
 			if interactiveMode {
 				fmt.Println(">>>>>> ", deletedcount, "statuses were successfully deleted.")
 			} else {
 				log.Println(deletedcount, "statuses were successfully deleted.")
 			}
+
+			// Go hunting likes.
+			numFavsDeleted, err := deleteFavourites(hc)
+			if err != nil {
+				log.Fatal(err)
+			}
+			log.Printf("Deleted %d favourites.\n", numFavsDeleted)
 		}
 	}
+}
+
+// deleteFavourites looks for all favs made by the user that are older than maxtime.
+// Returns the number of deleted favourites and any error that might have occured.
+func deleteFavourites(maxtime time.Time, httpClient *APIClient) (numFavsDeleted int, err error) {
+	// TODO Implement
+	return 0, nil
 }
