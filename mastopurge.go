@@ -63,6 +63,7 @@ type MastoPurgeSettings struct {
 type AccountInfo struct {
 	ID       int    `json:"id,string"`
 	Username string `json:"username"`
+	Account  string `json:"acct"`
 }
 
 type RespAppRegister struct {
@@ -78,6 +79,7 @@ type Status struct {
 	ID uint64 `json:"id,string"`
 	//Content     string  `json:"content"`
 	CreatedAt time.Time `json:"created_at"`
+	Account   AccountInfo
 }
 
 var (
@@ -429,24 +431,46 @@ func main() {
 
 			// No more pages, done deleting posts. :-)
 			if interactiveMode {
-				fmt.Println(">>>>>> ", deletedcount, "statuses were successfully deleted.")
+				fmt.Println(">>>>>>", deletedcount, "statuses were successfully deleted.")
 			} else {
 				log.Println(deletedcount, "statuses were successfully deleted.")
 			}
 
 			// Go hunting likes.
-			numFavsDeleted, err := deleteFavourites(hc)
+			numFavsDeleted, err := deleteFavourites(maxtime, *dryRun, hc, accountinfo)
 			if err != nil {
 				log.Fatal(err)
 			}
-			log.Printf("Deleted %d favourites.\n", numFavsDeleted)
+			fmt.Printf(">>>>>> Deleted %d favourites.\n", numFavsDeleted)
 		}
 	}
 }
 
 // deleteFavourites looks for all favs made by the user that are older than maxtime.
 // Returns the number of deleted favourites and any error that might have occured.
-func deleteFavourites(maxtime time.Time, httpClient *APIClient) (numFavsDeleted int, err error) {
-	// TODO Implement
+func deleteFavourites(maxtime time.Time, dryRun bool, apiClient *APIClient, accountInfo AccountInfo) (numFavsDeleted int, err error) {
+	// TODO Fetch favs, ignoring everything younger than maxtime.
+	// GET /api/v1/favourites
+	params := url.Values{}
+	//params.Add("limit", "0")
+	respBody, fetchErr := apiClient.Request(http.MethodGet, "/api/v1/favourites", params)
+	if fetchErr != nil {
+		return 0, fetchErr
+	}
+	var favs []Status
+
+	err = json.Unmarshal(respBody, &favs)
+	if err != nil {
+		// Just in case server response is an error message
+		log.Println(string(respBody))
+		return 0, err
+	}
+
+	for _, fav := range favs {
+		log.Printf("Found fav of toot %d posted by %s at %s", fav.ID, fav.Account.Account, fav.CreatedAt.Format("Jan 2, 2006 at 3:04:05 PM MST"))
+	}
+
+	// TODO Iterate favs2Delete, respecting dryRun.
+	// delete via: POST statuses/:id/unfavourite
 	return 0, nil
 }
