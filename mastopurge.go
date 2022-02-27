@@ -89,6 +89,7 @@ var (
 	printVersion       = flag.Bool("version", false, "Print version, and exit.")
 	quietMode          = flag.Bool("quiet", false, "Reduce output to the most important messages only.")
 	dryRun             = flag.Bool("dryrun", false, "Run MastoPurge to preview its results, but without actually deleting any statuses.")
+	purgeFavs					 = flag.Bool("favs", false, "Purge favourites in addition to toots.")
 )
 
 var versionString string = "0.0.0"
@@ -437,18 +438,20 @@ func main() {
 			}
 
 			// Go hunting likes.
-			numFavsDeleted, err := deleteFavourites(maxtime, *dryRun, hc, accountinfo)
-			if err != nil {
-				log.Fatal(err)
+			if *purgeFavs {
+				numFavsDeleted, err := purgeFavourites(maxtime, *dryRun, hc, accountinfo)
+				if err != nil {
+					log.Fatal(err)
+				}
+				fmt.Printf(">>>>>> Deleted %d favourites.\n", numFavsDeleted)
 			}
-			fmt.Printf(">>>>>> Deleted %d favourites.\n", numFavsDeleted)
 		}
 	}
 }
 
 // deleteFavourites looks for all favs made by the user that are older than maxtime.
 // Returns the number of deleted favourites and any error that might have occured.
-func deleteFavourites(maxtime time.Time, dryRun bool, apiClient *APIClient, accountInfo AccountInfo) (numFavsDeleted int, err error) {
+func purgeFavourites(maxtime time.Time, dryRun bool, apiClient *APIClient, accountInfo AccountInfo) (numFavsDeleted int, err error) {
 	// TODO Fetch favs, ignoring everything younger than maxtime.
 	// GET /api/v1/favourites
 	params := url.Values{}
