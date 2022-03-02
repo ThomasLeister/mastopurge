@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -89,7 +90,7 @@ var (
 	printVersion       = flag.Bool("version", false, "Print version, and exit.")
 	quietMode          = flag.Bool("quiet", false, "Reduce output to the most important messages only.")
 	dryRun             = flag.Bool("dryrun", false, "Run MastoPurge to preview its results, but without actually deleting any statuses.")
-	purgeFavs					 = flag.Bool("favs", false, "Purge favourites in addition to toots.")
+	purgeFavs          = flag.Bool("favs", false, "Purge favourites in addition to toots.")
 )
 
 var versionString string = "0.0.0"
@@ -452,28 +453,68 @@ func main() {
 // deleteFavourites looks for all favs made by the user that are older than maxtime.
 // Returns the number of deleted favourites and any error that might have occured.
 func purgeFavourites(maxtime time.Time, dryRun bool, apiClient *APIClient, accountInfo AccountInfo) (numFavsDeleted int, err error) {
-	// TODO Fetch favs, ignoring everything younger than maxtime.
-	// GET /api/v1/favourites
-	params := url.Values{}
-	//params.Add("limit", "0")
-	respBody, fetchErr := apiClient.Request(http.MethodGet, "/api/v1/favourites", params)
-	if fetchErr != nil {
-		return 0, fetchErr
-	}
 	var favs []Status
 
-	err = json.Unmarshal(respBody, &favs)
-	if err != nil {
-		// Just in case server response is an error message
-		log.Println(string(respBody))
-		return 0, err
-	}
+	// The max toot ID which we use at each favs-fetching iteration.
+	var maxId uint64
+	maxId = math.MaxUint64
 
-	for _, fav := range favs {
-		log.Printf("Found fav of toot %d posted by %s at %s", fav.ID, fav.Account.Account, fav.CreatedAt.Format("Jan 2, 2006 at 3:04:05 PM MST"))
+	requestCount := 0
+	// Fetch favs, ignoring everything younger than maxtime.
+	for {
+		requestCount++
+		chunk := getChunkOfFavs(apiClient, maxId)
+		log.Printf("  ..got chunk of %d favs..", len(chunk))
+
+		for i := 0; i < len(chunk); i++ {
+			favs = append(favs, chunk[i])
+			if chunk[i].ID < maxId {
+				maxId = chunk[i].ID
+			}
+		}
+
+		// maxID is the oldest one we got so far, start with one less into the next round
+		maxId--
+
+		if len(chunk) == 0 {
+			log.Printf(" ..done as we didn't get anymore favs from Mastodon, tried %d time(s)", requestCount)
+			break
+		}
 	}
 
 	// TODO Iterate favs2Delete, respecting dryRun.
 	// delete via: POST statuses/:id/unfavourite
+	for _, fav := range favs {
+		log.Printf("Found fav of toot %d posted by %s at %s", fav.ID, fav.Account.Account, fav.CreatedAt.Format("Jan 2, 2006 at 3:04:05 PM MST"))
+
+		if !dryRun {
+		}
+	}
+
 	return 0, nil
+}
+
+func getChunkOfFavs(apiClient *APIClient, maxId uint64) []Status {
+	// GET /api/v1/favourites
+	params := url.Values{}
+	params.Add("limit", strconv.Itoa(Pagelimit))
+	if maxId != 0 {
+		params.Add("max_id", fmt.Sprint(maxId))
+	}
+	respBody, err := apiClient.Request(http.MethodGet, "/api/v1/favourites", params)
+	if err != nil {
+		emptySlice := []Status{}
+		return emptySlice
+	}
+
+	// Convert the JSON response into some slice of toots.
+	var favs []Status
+	err = json.Unmarshal(respBody, &favs)
+	if err != nil {
+		// Just in case server response is an error message
+		log.Println(string(respBody))
+		emptySlice := []Status{}
+		return emptySlice
+	}
+	return favs
 }
