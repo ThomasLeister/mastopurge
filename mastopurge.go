@@ -464,7 +464,7 @@ func purgeFavourites(maxtime time.Time, dryRun bool, apiClient *APIClient, accou
 	for {
 		requestCount++
 		chunk := getChunkOfFavs(apiClient, maxId)
-		log.Printf("  ..got chunk of %d favs..", len(chunk))
+		log.Printf("  ..got chunk of %d favs. Last one has id=%d, was posted by=%s at %s", len(chunk), chunk[len(chunk)-1].ID, [len(chunk)-1].Account.Username, chunk[len(chunk)-1].CreatedAt)
 
 		for i := 0; i < len(chunk); i++ {
 			favs = append(favs, chunk[i])
@@ -499,7 +499,7 @@ func getChunkOfFavs(apiClient *APIClient, maxId uint64) []Status {
 	params := url.Values{}
 	params.Add("limit", strconv.Itoa(Pagelimit))
 	if maxId != 0 {
-		params.Add("max_id", fmt.Sprint(maxId))
+		// params.Add("max_id", fmt.Sprint(maxId))
 	}
 	respBody, err := apiClient.Request(http.MethodGet, "/api/v1/favourites", params)
 	if err != nil {
