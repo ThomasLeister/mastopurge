@@ -32,6 +32,15 @@ func (c *APIClient) Init() {
 // e.g. GET or POST, whereas endpoint is the API endpoint to which we should
 // make the request.
 func (c *APIClient) Request(method, endpoint string, params url.Values) (body []byte, err error) {
+	body, _, err := c.RequestWithLink(method, endpoint, params)
+	return body, err
+}
+
+// RequestWithLink makes a new request to the API. method is the HTTP method to use,
+// e.g. GET or POST, whereas endpoint is the API endpoint to which we should
+// make the request.
+// Returns the 'Link' header with either an empty string or links to the previous or next chunk.
+func (c *APIClient) RequestWithLink(method, endpoint string, params url.Values) (body []byte, linkHeader string, err error) {
 	// Set up request: if it's a POST/PUT, we make the body urlencoded.
 	uri := c.Server + endpoint
 	var req *http.Request
@@ -64,13 +73,17 @@ func (c *APIClient) Request(method, endpoint string, params url.Values) (body []
 			log.Fatal(err)
 		}
 
+		// Fetch 'Link' header. Empty string, if none is available.
+		linkHeader := res.Header.Get("Link")
+		fmt.Printf("found Link header: %s", linkHeader)
+
 		// Only exit if request was not API rate limited
 		if rateLimited(res) == false {
 			break
 		}
 	}
 
-	return body, nil
+	return body, linkHeader, nil
 }
 
 // rateLimited checks if API throttling is active. If yes, it waits the time
