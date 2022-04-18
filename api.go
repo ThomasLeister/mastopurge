@@ -32,7 +32,7 @@ func (c *APIClient) Init() {
 // e.g. GET or POST, whereas endpoint is the API endpoint to which we should
 // make the request.
 func (c *APIClient) Request(method, endpoint string, params url.Values) (body []byte, err error) {
-	body, _, err := c.RequestWithLink(method, endpoint, params)
+	body, _, err = c.RequestWithLink(method, endpoint, params)
 	return body, err
 }
 
@@ -62,6 +62,8 @@ func (c *APIClient) RequestWithLink(method, endpoint string, params url.Values) 
 		req.Header.Set("Authorization", "Bearer "+c.AccessToken)
 	}
 
+	// Keep going until we get the response,
+	// possibly including some waiting around for API rate limits.
 	for {
 		res, geterr := c.Client.Do(req)
 		if geterr != nil {
@@ -74,11 +76,11 @@ func (c *APIClient) RequestWithLink(method, endpoint string, params url.Values) 
 		}
 
 		// Fetch 'Link' header. Empty string, if none is available.
-		linkHeader := res.Header.Get("Link")
+		linkHeader = res.Header.Get("Link")
 		fmt.Printf("found Link header: %s", linkHeader)
 
 		// Only exit if request was not API rate limited
-		if rateLimited(res) == false {
+		if !rateLimited(res) {
 			break
 		}
 	}

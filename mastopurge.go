@@ -464,15 +464,18 @@ func purgeFavourites(maxtime time.Time, dryRun bool, apiClient *APIClient, accou
 	for {
 		requestCount++
 		chunk := getChunkOfFavs(apiClient, maxId)
-		log.Printf("  ..got chunk of %d favs. Last one has id=%d, was posted by=%s at %s", len(chunk), chunk[len(chunk)-1].ID, [len(chunk)-1].Account.Username, chunk[len(chunk)-1].CreatedAt)
+		log.Printf("  ..got chunk of %d favs. Last one has id=%d, was posted by=%s at %s, first one has id=%d, posted by=%s at %s.",
+			len(chunk), 
+			chunk[len(chunk)-1].ID, chunk[len(chunk)-1].Account.Username, chunk[len(chunk)-1].CreatedAt,
+			chunk[0].ID, chunk[0].Account.Username, chunk[0].CreatedAt)
 
 		for i := 0; i < len(chunk); i++ {
 			favs = append(favs, chunk[i])
 			if chunk[i].ID < maxId {
+				log.Printf("decreasing maxId from %d  to %d.", maxId, chunk[i].ID)
 				maxId = chunk[i].ID
 			}
 		}
-
 		// maxID is the oldest one we got so far, start with one less into the next round
 		maxId--
 
@@ -488,23 +491,23 @@ func purgeFavourites(maxtime time.Time, dryRun bool, apiClient *APIClient, accou
 		log.Printf("Found fav of toot %d posted by %s at %s", fav.ID, fav.Account.Account, fav.CreatedAt.Format("Jan 2, 2006 at 3:04:05 PM MST"))
 
 		if !dryRun {
+			log.Printf("  [purgeFavourites() - wet run not implemented, yet.")
 		}
 	}
 
 	return 0, nil
 }
 
-func getChunkOfFavs(apiClient *APIClient, maxId uint64) []Status {
+func getChunkOfFavs(apiClient *APIClient, maxId uint64) ([]Status, uint64) {
 	// GET /api/v1/favourites
 	params := url.Values{}
 	params.Add("limit", strconv.Itoa(Pagelimit))
-	if maxId != 0 {
-		// params.Add("max_id", fmt.Sprint(maxId))
-	}
-	respBody, err := apiClient.Request(http.MethodGet, "/api/v1/favourites", params)
+	respBody, linkHeader, err := apiClient.RequestWithLink(http.MethodGet, "/api/v1/favourites", params)
+	log.Printf("\n  [getChunkOfFavs()] response body=%s", string(respBody))
+	log.Printf("\n  [getChunkOfFavs()] link header for next chunk=%s", string(linkHeader))
 	if err != nil {
 		emptySlice := []Status{}
-		return emptySlice
+		return emptySlice, 0
 	}
 
 	// Convert the JSON response into some slice of toots.
@@ -514,7 +517,15 @@ func getChunkOfFavs(apiClient *APIClient, maxId uint64) []Status {
 		// Just in case server response is an error message
 		log.Println(string(respBody))
 		emptySlice := []Status{}
-		return emptySlice
+		return emptySlice, 0
 	}
-	return favs
+	nextMaxId := getNextMaxIdFromLinkHeader(linkHeader)
+	return favs, nextMaxId
+}
+
+// Returns the max_id parameter of the rel="next" URL in a Link header.
+// This Link header is provided by Mastodon API for paging through timelines.
+func getNextMaxIdFromLinkHeader(linkHeader string) uint64 {
+	log.Printf("  [getNextMaxIdFromLinkHeader(%s)]: not yet implemented.", linkHeader)
+	return 0
 }
