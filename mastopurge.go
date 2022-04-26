@@ -326,6 +326,7 @@ func main() {
 				log.Fatal(err)
 			}
 			pinnedStatusIds := getStatusIds(pinnedStatuses)
+			log.Printf("Found %d pinned statuses, which will not be deleted.", len(pinnedStatusIds))
 
 			var maxid uint64 = 0
 			var prevmaxid uint64 = 1
@@ -352,7 +353,6 @@ func main() {
 
 				var statuses []Status
 				err = json.Unmarshal(resp, &statuses)
-				log.Printf("Found %d status", len(statuses))
 				if err != nil {
 					// Maybe server response is an error message?
 					log.Println(string(resp))
