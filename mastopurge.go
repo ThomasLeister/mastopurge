@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -91,6 +90,7 @@ var (
 	quietMode          = flag.Bool("quiet", false, "Reduce output to the most important messages only.")
 	dryRun             = flag.Bool("dryrun", false, "Run MastoPurge to preview its results, but without actually deleting any statuses.")
 	purgeFavs          = flag.Bool("favs", false, "Purge favourites in addition to toots.")
+	verbose            = flag.Bool("verbose", false, "Be more verbose with log info.")
 )
 
 var versionString string = "0.0.0"
@@ -230,6 +230,11 @@ func main() {
 	} else {
 		accountinfo := AccountInfo{}
 		err := json.Unmarshal(body, &accountinfo)
+		if err != nil {
+			log.Fatal(err)
+			// No account info? No sense in further processing.
+			return
+		}
 
 		if accountinfo.ID == 0 {
 			if !*quietMode {
@@ -440,7 +445,7 @@ func main() {
 
 			// Go hunting likes.
 			if *purgeFavs {
-				numFavsDeleted, err := purgeFavourites(maxtime, *dryRun, hc, accountinfo)
+				numFavsDeleted, err := purgeFavourites(maxtime, *dryRun, *verbose, hc, accountinfo)
 				if err != nil {
 					log.Fatal(err)
 				}
@@ -452,20 +457,24 @@ func main() {
 
 // deleteFavourites looks for all favs made by the user that are older than maxtime.
 // Returns the number of deleted favourites and any error that might have occured.
-func purgeFavourites(maxtime time.Time, dryRun bool, apiClient *APIClient, accountInfo AccountInfo) (numFavsDeleted int, err error) {
+func purgeFavourites(maxtime time.Time, dryRun bool, verbose bool, apiClient *APIClient, accountInfo AccountInfo) (numFavsDeleted int, err error) {
 	var favs []Status
+	var chunk []Status
+	var keepGoing bool
 
-	// The max toot ID which we use at each favs-fetching iteration.
-	var maxId uint64
-	maxId = math.MaxUint64
+	// Value of 0 means to go for the first chunk.
+	var maxId uint64 = 0
 
 	requestCount := 0
 	// Fetch favs, ignoring everything younger than maxtime.
 	for {
 		requestCount++
-		chunk := getChunkOfFavs(apiClient, maxId)
+		if verbose {
+			log.Printf("outer loop with requestCount=%d and maxId=%d\n", requestCount, maxId)
+		}
+		chunk, maxId, keepGoing = getChunkOfFavs(apiClient, maxId)
 		log.Printf("  ..got chunk of %d favs. Last one has id=%d, was posted by=%s at %s, first one has id=%d, posted by=%s at %s.",
-			len(chunk), 
+			len(chunk),
 			chunk[len(chunk)-1].ID, chunk[len(chunk)-1].Account.Username, chunk[len(chunk)-1].CreatedAt,
 			chunk[0].ID, chunk[0].Account.Username, chunk[0].CreatedAt)
 
@@ -477,12 +486,24 @@ func purgeFavourites(maxtime time.Time, dryRun bool, apiClient *APIClient, accou
 			}
 		}
 		// maxID is the oldest one we got so far, start with one less into the next round
-		maxId--
+		// maxId--
+		if verbose {
+			log.Printf(".. proceeding with maxId=%d\n", maxId)
+		}
 
 		if len(chunk) == 0 {
 			log.Printf(" ..done as we didn't get anymore favs from Mastodon, tried %d time(s)", requestCount)
 			break
 		}
+
+		if !keepGoing {
+			log.Printf("  ..done as we didn't get a 'next' link from the Mastodon API, used %d requests up until here.", requestCount)
+			break
+		}
+	}
+
+	if verbose {
+		log.Printf(".. found %d favs to delete.\n", len(favs))
 	}
 
 	// TODO Iterate favs2Delete, respecting dryRun.
@@ -491,6 +512,7 @@ func purgeFavourites(maxtime time.Time, dryRun bool, apiClient *APIClient, accou
 		log.Printf("Found fav of toot %d posted by %s at %s", fav.ID, fav.Account.Account, fav.CreatedAt.Format("Jan 2, 2006 at 3:04:05 PM MST"))
 
 		if !dryRun {
+			// TODO POST (?) statuses/:id/{favourite,unfavourite}
 			log.Printf("  [purgeFavourites() - wet run not implemented, yet.")
 		}
 	}
@@ -498,16 +520,28 @@ func purgeFavourites(maxtime time.Time, dryRun bool, apiClient *APIClient, accou
 	return 0, nil
 }
 
-func getChunkOfFavs(apiClient *APIClient, maxId uint64) ([]Status, uint64) {
+// Returns:
+// chunk of favs that could be deleted
+// new max_id for the next chunk
+// flag indicating whether we should keep going (true) or are done retrieving chunks of favs (false)
+func getChunkOfFavs(apiClient *APIClient, maxId uint64) ([]Status, uint64, bool) {
+	log.Printf(".. getting new chunk of favs starting with maxId=%d\n", maxId)
 	// GET /api/v1/favourites
 	params := url.Values{}
 	params.Add("limit", strconv.Itoa(Pagelimit))
+
+	// Only add max_id URL parameter when we got it from a 'link' header in some API response.
+	if maxId > 0 {
+		params.Add("max_id", strconv.FormatUint(maxId, 10))
+	}
+
+	log.Printf("URL parameters for chunk request: %s\n", params)
+
 	respBody, linkHeader, err := apiClient.RequestWithLink(http.MethodGet, "/api/v1/favourites", params)
-	log.Printf("\n  [getChunkOfFavs()] response body=%s", string(respBody))
 	log.Printf("\n  [getChunkOfFavs()] link header for next chunk=%s", string(linkHeader))
 	if err != nil {
 		emptySlice := []Status{}
-		return emptySlice, 0
+		return emptySlice, 0, false
 	}
 
 	// Convert the JSON response into some slice of toots.
@@ -517,15 +551,41 @@ func getChunkOfFavs(apiClient *APIClient, maxId uint64) ([]Status, uint64) {
 		// Just in case server response is an error message
 		log.Println(string(respBody))
 		emptySlice := []Status{}
-		return emptySlice, 0
+		return emptySlice, 0, false
 	}
-	nextMaxId := getNextMaxIdFromLinkHeader(linkHeader)
-	return favs, nextMaxId
+	nextMaxId, keepGoing := getNextMaxIdFromLinkHeader(linkHeader)
+	return favs, nextMaxId, keepGoing
 }
 
-// Returns the max_id parameter of the rel="next" URL in a Link header.
+// Returns the new max_id parameter out of the 'max_id' with rel="next" URL in a Link header.
 // This Link header is provided by Mastodon API for paging through timelines.
-func getNextMaxIdFromLinkHeader(linkHeader string) uint64 {
-	log.Printf("  [getNextMaxIdFromLinkHeader(%s)]: not yet implemented.", linkHeader)
-	return 0
+// Also returns a flag indicating whether we should keep going ('true') or are done retrieving new chunks ('false').
+func getNextMaxIdFromLinkHeader(linkHeader string) (uint64, bool) {
+	// link header looks like this:
+	// https://somedomain.social/api/v1/favourites?limit=40&max_id=6952669>; rel="next", <https://somedomain.social/api/v1/favourites?limit=40&min_id=6987227>; rel="prev"
+
+	// 1.a) Extract URI with max_id from link header. It's the first part of this split.
+	nextUri := strings.Split(linkHeader, ";")[0]
+
+	// 1.b) remove surrounding < and > from URI.
+	nextUri = strings.Trim(nextUri, "<>")
+
+	// 2. Get the 'max_id' url parameter which is
+	params, err := url.ParseQuery(nextUri)
+	if err != nil {
+		log.Printf("getNextMaxIdFromLinkHeader(): couldn't read max_id uri '%s': %s\n", nextUri, err)
+		return 0, false
+	}
+	maxIdParam, hasValue := params["max_id"]
+	if !hasValue {
+		log.Printf("NOTE: link header '%s' has no 'max_id' parameter. Stop retrieving more chunks.\n", nextUri)
+		return 0, false
+	}
+	maxId, err := strconv.ParseUint(maxIdParam[0], 0, 64)
+	if err != nil {
+		log.Printf("ERROR: max_id '%s' is not a valid number.\n", maxIdParam[0])
+		return 0, false
+	}
+	log.Printf("---> got new max_id=%d from link header=%s\n", maxId, linkHeader)
+	return maxId, true
 }
