@@ -449,7 +449,7 @@ func main() {
 				if err != nil {
 					log.Fatal(err)
 				}
-				fmt.Printf(">>>>>> Deleted %d favourites.\n", numFavsDeleted)
+				log.Printf(">>>>>> Deleted %d favourites.\n", numFavsDeleted)
 			}
 		}
 	}
@@ -469,7 +469,7 @@ func purgeFavourites(maxtime time.Time, dryRun bool, verbose bool, apiClient *AP
 	requestCount := 0
 	for {
 		requestCount++
-		chunk, maxId, keepGoing = getChunkOfFavs(apiClient, maxId)
+		chunk, maxId, keepGoing = getChunkOfFavs(apiClient, maxId, verbose)
 		if verbose {
 			log.Printf("  ..got chunk of %d favs. Last one has id=%d, was posted by=%s at %s, first one has id=%d, posted by=%s at %s.",
 				len(chunk),
@@ -486,12 +486,16 @@ func purgeFavourites(maxtime time.Time, dryRun bool, verbose bool, apiClient *AP
 		}
 
 		if len(chunk) == 0 {
-			log.Printf(" ..done as we didn't get anymore favs from Mastodon, tried %d time(s)", requestCount)
+			if verbose {
+				log.Printf(" ..done as we didn't get anymore favs from Mastodon, tried %d time(s)", requestCount)
+			}
 			break
 		}
 
 		if !keepGoing {
-			log.Printf("  ..done as we didn't get a 'next' link from the Mastodon API, used %d requests up until here.", requestCount)
+			if verbose {
+				log.Printf("  ..done as we didn't get a 'next' link from the Mastodon API, used %d requests up until here.", requestCount)
+			}
 			break
 		}
 	}
@@ -503,6 +507,7 @@ func purgeFavourites(maxtime time.Time, dryRun bool, verbose bool, apiClient *AP
 	// Undoing favs.
 	for _, fav := range favs {
 		if dryRun {
+			// The whole point of a dry run is to print this even if no verbose output has been requested.
 			log.Printf("Would undo fav of toot %d posted by %s at %s\n",
 				fav.ID, fav.Account.Account, fav.CreatedAt.Format("Jan 2, 2006 at 3:04:05 PM MST"))
 			continue
@@ -522,7 +527,7 @@ func purgeFavourites(maxtime time.Time, dryRun bool, verbose bool, apiClient *AP
 			log.Printf("Removed %d. fav of toot %d posted by %s at %s\n",
 				numFavsDeleted, fav.ID, fav.Account.Account, fav.CreatedAt.Format("Jan 2, 2006 at 3:04:05 PM MST"))
 		} else {
-			log.Printf(".")
+			fmt.Print(".")
 		}
 	}
 
@@ -533,8 +538,11 @@ func purgeFavourites(maxtime time.Time, dryRun bool, verbose bool, apiClient *AP
 // chunk of favs that could be deleted
 // new max_id for the next chunk
 // flag indicating whether we should keep going (true) or are done retrieving chunks of favs (false)
-func getChunkOfFavs(apiClient *APIClient, maxId uint64) ([]Status, uint64, bool) {
-	log.Printf(".. getting new chunk of favs starting with maxId=%d\n", maxId)
+func getChunkOfFavs(apiClient *APIClient, maxId uint64, verbose bool) ([]Status, uint64, bool) {
+	if verbose {
+		log.Printf(".. getting new chunk of favs starting with maxId=%d\n", maxId)
+	}
+
 	// GET /api/v1/favourites
 	params := url.Values{}
 	params.Add("limit", strconv.Itoa(Pagelimit))
@@ -559,14 +567,14 @@ func getChunkOfFavs(apiClient *APIClient, maxId uint64) ([]Status, uint64, bool)
 		emptySlice := []Status{}
 		return emptySlice, 0, false
 	}
-	nextMaxId, keepGoing := getNextMaxIdFromLinkHeader(linkHeader)
+	nextMaxId, keepGoing := getNextMaxIdFromLinkHeader(linkHeader, verbose)
 	return favs, nextMaxId, keepGoing
 }
 
 // Returns the new max_id parameter out of the 'max_id' with rel="next" URL in a Link header.
 // This Link header is provided by Mastodon API for paging through timelines.
 // Also returns a flag indicating whether we should keep going ('true') or are done retrieving new chunks ('false').
-func getNextMaxIdFromLinkHeader(linkHeader string) (uint64, bool) {
+func getNextMaxIdFromLinkHeader(linkHeader string, verbose bool) (uint64, bool) {
 	// link header looks like this:
 	// https://somedomain.social/api/v1/favourites?limit=40&max_id=6952669>; rel="next", <https://somedomain.social/api/v1/favourites?limit=40&min_id=6987227>; rel="prev"
 
@@ -584,7 +592,9 @@ func getNextMaxIdFromLinkHeader(linkHeader string) (uint64, bool) {
 	}
 	maxIdParam, hasValue := params["max_id"]
 	if !hasValue {
-		log.Printf("NOTE: link header '%s' has no 'max_id' parameter. Stop retrieving more chunks.\n", nextUri)
+		if verbose {
+			log.Printf("NOTE: link header '%s' has no 'max_id' parameter. Stop retrieving more chunks.\n", nextUri)
+		}
 		return 0, false
 	}
 	maxId, err := strconv.ParseUint(maxIdParam[0], 0, 64)
