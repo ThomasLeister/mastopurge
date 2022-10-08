@@ -465,18 +465,17 @@ func purgeFavourites(maxtime time.Time, dryRun bool, verbose bool, apiClient *AP
 	// Value of 0 means to go for the first chunk.
 	var maxId uint64 = 0
 
-	requestCount := 0
 	// Fetch favs, ignoring everything younger than maxtime.
+	requestCount := 0
 	for {
 		requestCount++
-		if verbose {
-			log.Printf("outer loop with requestCount=%d and maxId=%d\n", requestCount, maxId)
-		}
 		chunk, maxId, keepGoing = getChunkOfFavs(apiClient, maxId)
-		log.Printf("  ..got chunk of %d favs. Last one has id=%d, was posted by=%s at %s, first one has id=%d, posted by=%s at %s.",
-			len(chunk),
-			chunk[len(chunk)-1].ID, chunk[len(chunk)-1].Account.Username, chunk[len(chunk)-1].CreatedAt,
-			chunk[0].ID, chunk[0].Account.Username, chunk[0].CreatedAt)
+		if verbose {
+			log.Printf("  ..got chunk of %d favs. Last one has id=%d, was posted by=%s at %s, first one has id=%d, posted by=%s at %s.",
+				len(chunk),
+				chunk[len(chunk)-1].ID, chunk[len(chunk)-1].Account.Username, chunk[len(chunk)-1].CreatedAt,
+				chunk[0].ID, chunk[0].Account.Username, chunk[0].CreatedAt)
+		}
 
 		for i := 0; i < len(chunk); i++ {
 			favs = append(favs, chunk[i])
@@ -484,11 +483,6 @@ func purgeFavourites(maxtime time.Time, dryRun bool, verbose bool, apiClient *AP
 				log.Printf("decreasing maxId from %d  to %d.", maxId, chunk[i].ID)
 				maxId = chunk[i].ID
 			}
-		}
-		// maxID is the oldest one we got so far, start with one less into the next round
-		// maxId--
-		if verbose {
-			log.Printf(".. proceeding with maxId=%d\n", maxId)
 		}
 
 		if len(chunk) == 0 {
@@ -506,18 +500,33 @@ func purgeFavourites(maxtime time.Time, dryRun bool, verbose bool, apiClient *AP
 		log.Printf(".. found %d favs to delete.\n", len(favs))
 	}
 
-	// TODO Iterate favs2Delete, respecting dryRun.
-	// delete via: POST statuses/:id/unfavourite
+	// Undoing favs.
 	for _, fav := range favs {
-		log.Printf("Found fav of toot %d posted by %s at %s", fav.ID, fav.Account.Account, fav.CreatedAt.Format("Jan 2, 2006 at 3:04:05 PM MST"))
+		if dryRun {
+			log.Printf("Would undo fav of toot %d posted by %s at %s\n",
+				fav.ID, fav.Account.Account, fav.CreatedAt.Format("Jan 2, 2006 at 3:04:05 PM MST"))
+			continue
+		}
 
-		if !dryRun {
-			// TODO POST (?) statuses/:id/{favourite,unfavourite}
-			log.Printf("  [purgeFavourites() - wet run not implemented, yet.")
+		// POST statuses/:id/unfavourite
+		requestPath := fmt.Sprintf("/api/v1/statuses/%d/unfavourite", fav.ID)
+		_, err := apiClient.Request(http.MethodPost, requestPath, nil)
+		if err != nil {
+			log.Printf("Error undoing fav of toot %d posted by %s at %s: %s\n",
+				fav.ID, fav.Account.Account, fav.CreatedAt.Format("Jan 2, 2006 at 3:04:05 PM MST"),
+				err)
+			continue
+		}
+		numFavsDeleted++
+		if verbose {
+			log.Printf("Removed %d. fav of toot %d posted by %s at %s\n",
+				numFavsDeleted, fav.ID, fav.Account.Account, fav.CreatedAt.Format("Jan 2, 2006 at 3:04:05 PM MST"))
+		} else {
+			log.Printf(".")
 		}
 	}
 
-	return 0, nil
+	return numFavsDeleted, nil
 }
 
 // Returns:
@@ -535,10 +544,7 @@ func getChunkOfFavs(apiClient *APIClient, maxId uint64) ([]Status, uint64, bool)
 		params.Add("max_id", strconv.FormatUint(maxId, 10))
 	}
 
-	log.Printf("URL parameters for chunk request: %s\n", params)
-
 	respBody, linkHeader, err := apiClient.RequestWithLink(http.MethodGet, "/api/v1/favourites", params)
-	log.Printf("\n  [getChunkOfFavs()] link header for next chunk=%s", string(linkHeader))
 	if err != nil {
 		emptySlice := []Status{}
 		return emptySlice, 0, false
@@ -573,7 +579,7 @@ func getNextMaxIdFromLinkHeader(linkHeader string) (uint64, bool) {
 	// 2. Get the 'max_id' url parameter which is
 	params, err := url.ParseQuery(nextUri)
 	if err != nil {
-		log.Printf("getNextMaxIdFromLinkHeader(): couldn't read max_id uri '%s': %s\n", nextUri, err)
+		log.Printf("ERROR in getNextMaxIdFromLinkHeader(): couldn't read max_id uri '%s': %s\n", nextUri, err)
 		return 0, false
 	}
 	maxIdParam, hasValue := params["max_id"]
@@ -586,6 +592,5 @@ func getNextMaxIdFromLinkHeader(linkHeader string) (uint64, bool) {
 		log.Printf("ERROR: max_id '%s' is not a valid number.\n", maxIdParam[0])
 		return 0, false
 	}
-	log.Printf("---> got new max_id=%d from link header=%s\n", maxId, linkHeader)
 	return maxId, true
 }

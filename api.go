@@ -77,7 +77,6 @@ func (c *APIClient) RequestWithLink(method, endpoint string, params url.Values) 
 
 		// Fetch 'Link' header. Empty string, if none is available.
 		linkHeader = res.Header.Get("Link")
-		fmt.Printf("found Link header: %s", linkHeader)
 
 		// Only exit if request was not API rate limited
 		if !rateLimited(res) {
