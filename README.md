@@ -71,3 +71,19 @@ If you'd like to check whether Mastopurge works properly (without actually delet
 ```
 ./mastopurge --noninteractive --maxage "30 days" --dryrun
 ```
+
+### Favourites
+
+If you want to undo favourites, add the `--favs` parameter:
+
+```
+./mastopurge --maxage "365 days" --favs
+```
+
+### Verbose output
+
+If you are really curious about some internals, add verbose output:
+
+```
+./mastopurge --maxage "365 days" --verbose
+````
