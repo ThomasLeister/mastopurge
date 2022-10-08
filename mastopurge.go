@@ -63,6 +63,7 @@ type MastoPurgeSettings struct {
 type AccountInfo struct {
 	ID       int    `json:"id,string"`
 	Username string `json:"username"`
+	Account  string `json:"acct"`
 }
 
 type RespAppRegister struct {
@@ -78,6 +79,7 @@ type Status struct {
 	ID uint64 `json:"id,string"`
 	//Content     string  `json:"content"`
 	CreatedAt time.Time `json:"created_at"`
+	Account   AccountInfo
 }
 
 var (
@@ -87,6 +89,8 @@ var (
 	printVersion       = flag.Bool("version", false, "Print version, and exit.")
 	quietMode          = flag.Bool("quiet", false, "Reduce output to the most important messages only.")
 	dryRun             = flag.Bool("dryrun", false, "Run MastoPurge to preview its results, but without actually deleting any statuses.")
+	purgeFavs          = flag.Bool("favs", false, "Purge favourites in addition to toots.")
+	verbose            = flag.Bool("verbose", false, "Be more verbose with log info.")
 )
 
 var versionString string = "0.0.0"
@@ -226,6 +230,11 @@ func main() {
 	} else {
 		accountinfo := AccountInfo{}
 		err := json.Unmarshal(body, &accountinfo)
+		if err != nil {
+			log.Fatal(err)
+			// No account info? No sense in further processing.
+			return
+		}
 
 		if accountinfo.ID == 0 {
 			if !*quietMode {
@@ -427,12 +436,171 @@ func main() {
 				log.Println("[dryRun] 0 statuses deleted in total, because -dryRun was passed.")
 			}
 
-			// No more pages, done! :-)
+			// No more pages, done deleting posts. :-)
 			if interactiveMode {
-				fmt.Println(">>>>>> ", deletedcount, "statuses were successfully deleted.")
+				fmt.Println(">>>>>>", deletedcount, "statuses were successfully deleted.")
 			} else {
 				log.Println(deletedcount, "statuses were successfully deleted.")
 			}
+
+			// Go hunting likes.
+			if *purgeFavs {
+				numFavsDeleted, err := purgeFavourites(maxtime, *dryRun, *verbose, hc, accountinfo)
+				if err != nil {
+					log.Fatal(err)
+				}
+				log.Printf(">>>>>> Deleted %d favourites.\n", numFavsDeleted)
+			}
 		}
 	}
+}
+
+// deleteFavourites looks for all favs made by the user that are older than maxtime.
+// Returns the number of deleted favourites and any error that might have occured.
+func purgeFavourites(maxtime time.Time, dryRun bool, verbose bool, apiClient *APIClient, accountInfo AccountInfo) (numFavsDeleted int, err error) {
+	var favs []Status
+	var chunk []Status
+	var keepGoing bool
+
+	// Value of 0 means to go for the first chunk.
+	var maxId uint64 = 0
+
+	// Fetch favs, ignoring everything younger than maxtime.
+	requestCount := 0
+	for {
+		requestCount++
+		chunk, maxId, keepGoing = getChunkOfFavs(apiClient, maxId, verbose)
+		if verbose {
+			log.Printf("  ..got chunk of %d favs. Last one has id=%d, was posted by=%s at %s, first one has id=%d, posted by=%s at %s.",
+				len(chunk),
+				chunk[len(chunk)-1].ID, chunk[len(chunk)-1].Account.Username, chunk[len(chunk)-1].CreatedAt,
+				chunk[0].ID, chunk[0].Account.Username, chunk[0].CreatedAt)
+		}
+
+		for i := 0; i < len(chunk); i++ {
+			favs = append(favs, chunk[i])
+			if chunk[i].ID < maxId {
+				log.Printf("decreasing maxId from %d  to %d.", maxId, chunk[i].ID)
+				maxId = chunk[i].ID
+			}
+		}
+
+		if len(chunk) == 0 {
+			if verbose {
+				log.Printf(" ..done as we didn't get anymore favs from Mastodon, tried %d time(s)", requestCount)
+			}
+			break
+		}
+
+		if !keepGoing {
+			if verbose {
+				log.Printf("  ..done as we didn't get a 'next' link from the Mastodon API, used %d requests up until here.", requestCount)
+			}
+			break
+		}
+	}
+
+	if verbose {
+		log.Printf(".. found %d favs to delete.\n", len(favs))
+	}
+
+	// Undoing favs.
+	for _, fav := range favs {
+		if dryRun {
+			// The whole point of a dry run is to print this even if no verbose output has been requested.
+			log.Printf("Would undo fav of toot %d posted by %s at %s\n",
+				fav.ID, fav.Account.Account, fav.CreatedAt.Format("Jan 2, 2006 at 3:04:05 PM MST"))
+			continue
+		}
+
+		// POST statuses/:id/unfavourite
+		requestPath := fmt.Sprintf("/api/v1/statuses/%d/unfavourite", fav.ID)
+		_, err := apiClient.Request(http.MethodPost, requestPath, nil)
+		if err != nil {
+			log.Printf("Error undoing fav of toot %d posted by %s at %s: %s\n",
+				fav.ID, fav.Account.Account, fav.CreatedAt.Format("Jan 2, 2006 at 3:04:05 PM MST"),
+				err)
+			continue
+		}
+		numFavsDeleted++
+		if verbose {
+			log.Printf("Removed %d. fav of toot %d posted by %s at %s\n",
+				numFavsDeleted, fav.ID, fav.Account.Account, fav.CreatedAt.Format("Jan 2, 2006 at 3:04:05 PM MST"))
+		} else {
+			fmt.Print(".")
+		}
+	}
+
+	return numFavsDeleted, nil
+}
+
+// Returns:
+// chunk of favs that could be deleted
+// new max_id for the next chunk
+// flag indicating whether we should keep going (true) or are done retrieving chunks of favs (false)
+func getChunkOfFavs(apiClient *APIClient, maxId uint64, verbose bool) ([]Status, uint64, bool) {
+	if verbose {
+		log.Printf(".. getting new chunk of favs starting with maxId=%d\n", maxId)
+	}
+
+	// GET /api/v1/favourites
+	params := url.Values{}
+	params.Add("limit", strconv.Itoa(Pagelimit))
+
+	// Only add max_id URL parameter when we got it from a 'link' header in some API response.
+	if maxId > 0 {
+		params.Add("max_id", strconv.FormatUint(maxId, 10))
+	}
+
+	respBody, linkHeader, err := apiClient.RequestWithLink(http.MethodGet, "/api/v1/favourites", params)
+	if err != nil {
+		emptySlice := []Status{}
+		return emptySlice, 0, false
+	}
+
+	// Convert the JSON response into some slice of toots.
+	var favs []Status
+	err = json.Unmarshal(respBody, &favs)
+	if err != nil {
+		// Just in case server response is an error message
+		log.Println(string(respBody))
+		emptySlice := []Status{}
+		return emptySlice, 0, false
+	}
+	nextMaxId, keepGoing := getNextMaxIdFromLinkHeader(linkHeader, verbose)
+	return favs, nextMaxId, keepGoing
+}
+
+// Returns the new max_id parameter out of the 'max_id' with rel="next" URL in a Link header.
+// This Link header is provided by Mastodon API for paging through timelines.
+// Also returns a flag indicating whether we should keep going ('true') or are done retrieving new chunks ('false').
+func getNextMaxIdFromLinkHeader(linkHeader string, verbose bool) (uint64, bool) {
+	// link header looks like this:
+	// https://somedomain.social/api/v1/favourites?limit=40&max_id=6952669>; rel="next", <https://somedomain.social/api/v1/favourites?limit=40&min_id=6987227>; rel="prev"
+
+	// 1.a) Extract URI with max_id from link header. It's the first part of this split.
+	nextUri := strings.Split(linkHeader, ";")[0]
+
+	// 1.b) remove surrounding < and > from URI.
+	nextUri = strings.Trim(nextUri, "<>")
+
+	// 2. Get the 'max_id' url parameter which is
+	params, err := url.ParseQuery(nextUri)
+	if err != nil {
+		log.Printf("ERROR in getNextMaxIdFromLinkHeader(): couldn't read max_id uri '%s': %s\n", nextUri, err)
+		return 0, false
+	}
+	maxIdParam, hasValue := params["max_id"]
+	if !hasValue {
+		if verbose {
+			log.Printf("NOTE: link header '%s' has no 'max_id' parameter. Stop retrieving more chunks.\n", nextUri)
+		}
+		return 0, false
+	}
+	maxId, err := strconv.ParseUint(maxIdParam[0], 0, 64)
+	if err != nil {
+		log.Printf("ERROR: max_id '%s' is not a valid number.\n", maxIdParam[0])
+		return 0, false
+	}
+	return maxId, true
 }
