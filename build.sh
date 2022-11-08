@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 ### Get VERSIONSTRING from Git
 VERSIONSTRING="$(git describe --tags --exact-match || git rev-parse --short HEAD)"
