@@ -1,6 +1,16 @@
 # MastoPurge
 *Purges Mastodon accounts. Deletes old posts. Makes things clean again.*
 
+---
+
+UPDATE:\
+**MastoPurge is now archived and is not maintained anymore, since Mastodon has received an included "auto-delete" feature that allows you to automatically deleting your old posts based on various criteria. You can find the setting at: https://<yourmastodoninstance>/statuses_cleanup .**
+
+---
+
+\
+\
+\
 MastoPurge connects to your Mastodon account and automatically mass-deletes your old toots. You define what "old" means: Posts from the last few hours/days/weeks/months are preserved while older ones get deleted from your account.
 
 MastoPurge is executed as a command line application on your own PC. You do not need to rely on third parties.
