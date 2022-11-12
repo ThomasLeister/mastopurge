@@ -4,7 +4,7 @@
 ---
 
 UPDATE:\
-**MastoPurge is now archived and is not maintained anymore, since Mastodon has received an included "auto-delete" feature that allows you to automatically deleting your old posts based on various criteria. You can find the setting at: https://<yourmastodoninstance>/statuses_cleanup .**
+**MastoPurge is now archived and is not maintained anymore, since Mastodon has received an included "auto-delete" feature that allows you to automatically deleting your old posts based on various criteria. You can find the setting at: https://yourmastodoninstance.tld/statuses_cleanup .**
 
 ---
 
