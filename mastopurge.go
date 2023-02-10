@@ -399,8 +399,8 @@ func main() {
 					}
 
 					if status.ID < maxid || maxid == 0 {
-						maxid = status.ID - 1
 						prevmaxid = maxid
+						maxid = status.ID - 1
 					}
 				}
 
